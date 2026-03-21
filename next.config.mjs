@@ -4,7 +4,7 @@ const nextConfig = {
 
   // Puppeteer/Chromium 需要作为外部包，不被 webpack 打包
   experimental: {
-    serverComponentsExternalPackages: ['puppeteer-core', '@sparticuz/chromium'],
+    serverComponentsExternalPackages: ['puppeteer-core', '@sparticuz/chromium', 'ali-oss'],
   },
 
   // 环境变量
