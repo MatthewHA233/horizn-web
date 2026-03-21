@@ -302,7 +302,7 @@ export default function HoriznPage({ yearMonth }) {
   const currentTab = tabs.find(tab => tab.id === activeTab)
 
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-b from-gray-900 to-black">
+    <div className="flex flex-col bg-gradient-to-b from-gray-900 to-black" style={{ height: '100dvh' }}>
       {/* Toast 通知 */}
       <Toaster
         position="top-center"
