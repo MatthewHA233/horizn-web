@@ -372,22 +372,8 @@ export default function HoriznPage({ yearMonth }) {
 
               {/* 搜索定位玩家 */}
               <div ref={searchContainerRef} className="relative ml-1 sm:ml-2">
-                {pinnedPlayerId && !showSearchInput ? (
-                  // 已定位状态：显示玩家名 + 清除按钮
-                  <div className="flex items-center gap-1 px-2 py-1 bg-amber-600/20 text-amber-400 border border-amber-500/30 rounded text-[10px] sm:text-xs font-medium">
-                    <Search className="w-3 h-3 flex-shrink-0" />
-                    <span className="max-w-[60px] sm:max-w-[80px] truncate cursor-pointer" onClick={handleOpenSearch}>
-                      {pinnedPlayerName}
-                    </span>
-                    <button
-                      onClick={handleClearPin}
-                      className="hover:text-amber-200 transition-colors"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ) : showSearchInput ? (
-                  // 搜索输入状态（桌面端内联展开）
+                {showSearchInput ? (
+                  // 桌面端内联展开
                   <div className="relative">
                     <div className="flex items-center gap-1 bg-gray-800 border border-gray-600 rounded px-2 py-1">
                       <Search className="w-3 h-3 text-gray-400 flex-shrink-0" />
@@ -438,10 +424,14 @@ export default function HoriznPage({ yearMonth }) {
                     )}
                   </div>
                 ) : (
-                  // 默认状态：搜索按钮
+                  // 搜索按钮
                   <button
                     onClick={handleOpenSearch}
-                    className="flex items-center gap-1 px-2 py-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors"
+                    className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${
+                      pinnedPlayerId
+                        ? 'text-amber-400 hover:text-amber-200 hover:bg-amber-900/20'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                    }`}
                     title="搜索定位玩家"
                   >
                     <Search className="w-3.5 h-3.5" />
@@ -457,8 +447,11 @@ export default function HoriznPage({ yearMonth }) {
                     className="fixed inset-0 bg-black/60 z-40"
                     onClick={handleCloseSearch}
                   />
-                  {/* 弹出输入框 */}
-                  <div className="fixed left-0 right-0 top-0 z-50 px-3 pt-3 pb-2 bg-gray-900 border-b border-gray-700 shadow-2xl">
+                  {/* 弹出输入框（避开刘海/灵动岛） */}
+                  <div
+                    className="fixed left-0 right-0 top-0 z-50 px-3 pb-2 bg-gray-900 border-b border-gray-700 shadow-2xl"
+                    style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}
+                  >
                     <div className="flex items-center gap-2">
                       <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
                       <input
@@ -474,7 +467,6 @@ export default function HoriznPage({ yearMonth }) {
                         }}
                         placeholder="搜索玩家名或 ID..."
                         className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white outline-none placeholder-gray-500 focus:border-blue-500 transition-colors"
-                        autoFocus
                       />
                       <button
                         onClick={handleCloseSearch}
@@ -650,6 +642,25 @@ export default function HoriznPage({ yearMonth }) {
               )}
             </div>
           </div>
+
+          {/* 已定位玩家提示行（导航栏下方） */}
+          {pinnedPlayerId && pinnedPlayerName && (
+            <div className="flex items-center gap-1.5 pb-1.5 -mt-0.5">
+              <Search className="w-3 h-3 text-amber-400 flex-shrink-0" />
+              <span
+                className="text-[10px] sm:text-xs text-amber-400 font-medium truncate max-w-[140px] sm:max-w-[200px] cursor-pointer hover:text-amber-300"
+                onClick={handleOpenSearch}
+              >
+                {pinnedPlayerName}
+              </span>
+              <button
+                onClick={handleClearPin}
+                className="text-amber-400/60 hover:text-amber-400 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
