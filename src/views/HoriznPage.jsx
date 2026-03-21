@@ -584,22 +584,32 @@ export default function HoriznPage({ yearMonth }) {
 
           {/* 已锚定玩家提示行（导航栏下方） */}
           {pinnedPlayerId && pinnedPlayerName && (
-            <div className="flex items-center gap-2 py-1.5">
-              <div className="flex items-center gap-2 px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full">
-                <Pin className="w-3 h-3 text-amber-400 flex-shrink-0" />
+            <div className="flex items-center gap-2 py-1">
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 cursor-pointer"
+                style={{
+                  background: 'rgba(251,191,36,0.07)',
+                  border: '1px solid rgba(251,191,36,0.2)',
+                  borderRadius: '6px',
+                  boxShadow: '0 0 12px rgba(251,191,36,0.08)',
+                }}
+                onClick={handleOpenSearch}
+              >
+                <Pin className="w-2.5 h-2.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
                 <span
-                  className="text-xs text-amber-300 font-medium truncate max-w-[160px] sm:max-w-[240px] cursor-pointer hover:text-amber-100 transition-colors"
-                  onClick={handleOpenSearch}
+                  className="text-xs truncate max-w-[150px] sm:max-w-[220px]"
+                  style={{ color: '#fde68a', letterSpacing: '-0.01em', fontWeight: 500 }}
                 >
                   {pinnedPlayerName}
                 </span>
-                <button
-                  onClick={handleClearPin}
-                  className="text-amber-500/60 hover:text-amber-300 transition-colors ml-0.5"
-                >
-                  <X className="w-3 h-3" />
-                </button>
               </div>
+              <button
+                onClick={handleClearPin}
+                className="transition-opacity hover:opacity-100 opacity-40"
+                style={{ color: '#fbbf24' }}
+              >
+                <X className="w-3 h-3" />
+              </button>
             </div>
           )}
         </div>
@@ -664,22 +674,33 @@ export default function HoriznPage({ yearMonth }) {
         isMobile={isMobile}
       />
 
-      {/* 手机端搜索弹出框（渲染在最外层，避免父层堆叠上下文干扰） */}
+      {/* 手机端搜索弹出框 */}
       {showMobileSearchPopup && (
         <>
-          {/* 遮罩层 */}
           <div
-            className="fixed inset-0 bg-black/60 z-[9998]"
+            className="fixed inset-0 z-[9998]"
+            style={{ background: 'rgba(3,7,18,0.75)', backdropFilter: 'blur(2px)' }}
             onMouseDown={handleCloseSearch}
             onTouchEnd={handleCloseSearch}
           />
-          {/* 弹出输入框（safe-area 避开灵动岛） */}
           <div
-            className="fixed left-0 right-0 top-0 z-[9999] px-3 pb-3 bg-gray-900 border-b border-gray-700 shadow-2xl"
-            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}
+            className="fixed left-0 right-0 top-0 z-[9999] px-3 pb-2"
+            style={{
+              paddingTop: 'calc(env(safe-area-inset-top) + 10px)',
+              background: 'linear-gradient(180deg, #0c0e15 0%, #0c0e15 85%, transparent 100%)',
+              boxShadow: '0 0 0 1px rgba(255,255,255,0.06), 0 16px 40px rgba(0,0,0,0.85)',
+            }}
           >
-            <div className="flex items-center gap-2">
-              <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            {/* 输入行 */}
+            <div
+              className="flex items-center gap-2 px-2.5"
+              style={{
+                background: '#13161f',
+                border: '1px solid rgba(255,255,255,0.09)',
+                borderRadius: '8px',
+              }}
+            >
+              <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#4a4e63' }} />
               <input
                 ref={mobileSearchInputRef}
                 type="text"
@@ -688,45 +709,64 @@ export default function HoriznPage({ yearMonth }) {
                   setSearchQuery(e.target.value)
                   setShowSearchDropdown(true)
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') handleCloseSearch()
+                onKeyDown={(e) => { if (e.key === 'Escape') handleCloseSearch() }}
+                placeholder="玩家名 / ID"
+                className="flex-1 bg-transparent py-2 text-sm outline-none"
+                style={{
+                  color: '#e2e4ed',
+                  fontSize: '16px',
+                  letterSpacing: '-0.01em',
+                  caretColor: '#fbbf24',
                 }}
-                placeholder="搜索玩家名或 ID..."
-                className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-base text-white outline-none placeholder-gray-500 focus:border-blue-500 transition-colors"
-                style={{ fontSize: '16px' }}
               />
               <button
                 onMouseDown={handleCloseSearch}
-                className="text-gray-400 hover:text-white transition-colors p-1 touch-manipulation"
+                className="p-1 touch-manipulation transition-opacity"
+                style={{ color: '#4a4e63', WebkitTapHighlightColor: 'transparent' }}
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* 搜索建议列表 */}
+            {/* 结果列表 */}
             {showSearchDropdown && searchQuery.trim() && (
-              <div className="mt-2 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden max-h-[55vh] overflow-y-auto">
+              <div
+                className="mt-1.5 overflow-hidden overflow-y-auto"
+                style={{
+                  maxHeight: '48vh',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                  background: '#0c0e15',
+                }}
+              >
                 {searchSuggestions.length === 0 ? (
-                  <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                  <div className="px-3 py-2.5 text-xs text-center" style={{ color: '#4a4e63' }}>
                     未找到匹配玩家
                   </div>
                 ) : (
-                  searchSuggestions.map((player) => (
+                  searchSuggestions.map((player, i) => (
                     <button
                       key={player.playerId}
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        handleSelectPlayer(player.playerId)
+                      onMouseDown={(e) => { e.preventDefault(); handleSelectPlayer(player.playerId) }}
+                      onTouchEnd={(e) => { e.preventDefault(); handleSelectPlayer(player.playerId) }}
+                      className="w-full px-3 py-2 text-left flex items-baseline gap-2 touch-manipulation transition-opacity active:opacity-60"
+                      style={{
+                        borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                        WebkitTapHighlightColor: 'rgba(251,191,36,0.08)',
                       }}
-                      onTouchEnd={(e) => {
-                        e.preventDefault()
-                        handleSelectPlayer(player.playerId)
-                      }}
-                      className="w-full px-4 py-3 text-left text-sm text-gray-300 active:bg-gray-600 flex flex-col border-b border-gray-700/50 last:border-0 touch-manipulation"
-                      style={{ WebkitTapHighlightColor: 'rgba(255,255,255,0.1)' }}
                     >
-                      <span className="truncate font-medium">{player.name}</span>
-                      <span className="text-xs text-gray-500 truncate">{player.playerId}</span>
+                      <span
+                        className="text-sm truncate"
+                        style={{ color: '#e2e4ed', letterSpacing: '-0.01em', fontWeight: 500 }}
+                      >
+                        {player.name}
+                      </span>
+                      <span
+                        className="text-xs truncate shrink-0"
+                        style={{ color: '#4a4e63', fontVariantNumeric: 'tabular-nums' }}
+                      >
+                        {player.playerId}
+                      </span>
                     </button>
                   ))
                 )}
