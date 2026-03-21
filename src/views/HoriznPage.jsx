@@ -439,67 +439,6 @@ export default function HoriznPage({ yearMonth }) {
                 )}
               </div>
 
-              {/* 手机端搜索弹出框（全屏遮罩 + 顶部输入框） */}
-              {showMobileSearchPopup && (
-                <>
-                  {/* 遮罩层 */}
-                  <div
-                    className="fixed inset-0 bg-black/60 z-40"
-                    onClick={handleCloseSearch}
-                  />
-                  {/* 弹出输入框（避开刘海/灵动岛） */}
-                  <div
-                    className="fixed left-0 right-0 top-0 z-50 px-3 pb-2 bg-gray-900 border-b border-gray-700 shadow-2xl"
-                    style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                      <input
-                        ref={mobileSearchInputRef}
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => {
-                          setSearchQuery(e.target.value)
-                          setShowSearchDropdown(true)
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') handleCloseSearch()
-                        }}
-                        placeholder="搜索玩家名或 ID..."
-                        className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white outline-none placeholder-gray-500 focus:border-blue-500 transition-colors"
-                      />
-                      <button
-                        onClick={handleCloseSearch}
-                        className="text-gray-400 hover:text-white transition-colors p-1"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-
-                    {/* 搜索建议列表 */}
-                    {showSearchDropdown && searchQuery.trim() && (
-                      <div className="mt-2 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden max-h-[50vh] overflow-y-auto custom-scrollbar">
-                        {searchSuggestions.length === 0 ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                            未找到匹配玩家
-                          </div>
-                        ) : (
-                          searchSuggestions.map((player) => (
-                            <button
-                              key={player.playerId}
-                              onClick={() => handleSelectPlayer(player.playerId)}
-                              className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex flex-col border-b border-gray-700/50 last:border-0"
-                            >
-                              <span className="truncate font-medium">{player.name}</span>
-                              <span className="text-xs text-gray-500 truncate">{player.playerId}</span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
             </div>
 
             {/* 右侧：月份选择器 + 管理员标识 + 状态信息 */}
@@ -722,6 +661,78 @@ export default function HoriznPage({ yearMonth }) {
         onClose={() => setShowMemberAdminModal(false)}
         isMobile={isMobile}
       />
+
+      {/* 手机端搜索弹出框（渲染在最外层，避免父层堆叠上下文干扰） */}
+      {showMobileSearchPopup && (
+        <>
+          {/* 遮罩层 */}
+          <div
+            className="fixed inset-0 bg-black/60 z-[9998]"
+            onMouseDown={handleCloseSearch}
+            onTouchEnd={handleCloseSearch}
+          />
+          {/* 弹出输入框（safe-area 避开灵动岛） */}
+          <div
+            className="fixed left-0 right-0 top-0 z-[9999] px-3 pb-3 bg-gray-900 border-b border-gray-700 shadow-2xl"
+            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}
+          >
+            <div className="flex items-center gap-2">
+              <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <input
+                ref={mobileSearchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value)
+                  setShowSearchDropdown(true)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') handleCloseSearch()
+                }}
+                placeholder="搜索玩家名或 ID..."
+                className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-base text-white outline-none placeholder-gray-500 focus:border-blue-500 transition-colors"
+                style={{ fontSize: '16px' }}
+              />
+              <button
+                onMouseDown={handleCloseSearch}
+                className="text-gray-400 hover:text-white transition-colors p-1 touch-manipulation"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 搜索建议列表 */}
+            {showSearchDropdown && searchQuery.trim() && (
+              <div className="mt-2 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden max-h-[55vh] overflow-y-auto">
+                {searchSuggestions.length === 0 ? (
+                  <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                    未找到匹配玩家
+                  </div>
+                ) : (
+                  searchSuggestions.map((player) => (
+                    <button
+                      key={player.playerId}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        handleSelectPlayer(player.playerId)
+                      }}
+                      onTouchEnd={(e) => {
+                        e.preventDefault()
+                        handleSelectPlayer(player.playerId)
+                      }}
+                      className="w-full px-4 py-3 text-left text-sm text-gray-300 active:bg-gray-600 flex flex-col border-b border-gray-700/50 last:border-0 touch-manipulation"
+                      style={{ WebkitTapHighlightColor: 'rgba(255,255,255,0.1)' }}
+                    >
+                      <span className="truncate font-medium">{player.name}</span>
+                      <span className="text-xs text-gray-500 truncate">{player.playerId}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
