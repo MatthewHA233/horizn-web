@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ShieldCheck, Calendar, Search, X } from 'lucide-react'
+import { ShieldCheck, Calendar, Search, X, Pin } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import BarChartRace from '@/components/Horizn/BarChartRace'
 import CopyRankModal from '@/components/Horizn/CopyRankModal'
@@ -582,22 +582,24 @@ export default function HoriznPage({ yearMonth }) {
             </div>
           </div>
 
-          {/* 已定位玩家提示行（导航栏下方） */}
+          {/* 已锚定玩家提示行（导航栏下方） */}
           {pinnedPlayerId && pinnedPlayerName && (
-            <div className="flex items-center gap-1.5 pb-1.5 -mt-0.5">
-              <Search className="w-3 h-3 text-amber-400 flex-shrink-0" />
-              <span
-                className="text-[10px] sm:text-xs text-amber-400 font-medium truncate max-w-[140px] sm:max-w-[200px] cursor-pointer hover:text-amber-300"
-                onClick={handleOpenSearch}
-              >
-                {pinnedPlayerName}
-              </span>
-              <button
-                onClick={handleClearPin}
-                className="text-amber-400/60 hover:text-amber-400 transition-colors"
-              >
-                <X className="w-3 h-3" />
-              </button>
+            <div className="flex items-center gap-2 py-1.5">
+              <div className="flex items-center gap-2 px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full">
+                <Pin className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                <span
+                  className="text-xs text-amber-300 font-medium truncate max-w-[160px] sm:max-w-[240px] cursor-pointer hover:text-amber-100 transition-colors"
+                  onClick={handleOpenSearch}
+                >
+                  {pinnedPlayerName}
+                </span>
+                <button
+                  onClick={handleClearPin}
+                  className="text-amber-500/60 hover:text-amber-300 transition-colors ml-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
             </div>
           )}
         </div>
