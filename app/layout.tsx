@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "HORIZN",
-  description: "HORIZN",
+  description: "HORIZN 地平线",
 };
 
 export default function RootLayout({
