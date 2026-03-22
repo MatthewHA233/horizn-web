@@ -1,10 +1,8 @@
 import { assertSupabase } from './supabaseClient'
 import { generateColorMap } from '@/utils/csvParser'
 
-const DEFAULT_MAX_SESSIONS = Number(process.env.NEXT_PUBLIC_HORIZN_MAX_SESSIONS)
-  || (process.env.NODE_ENV === 'development' ? 80 : 200)
-const DEFAULT_DATE_LIMIT = Number(process.env.NEXT_PUBLIC_HORIZN_DATE_LIMIT) || 400
 const AVAILABLE_MONTHS_CACHE_TTL_MS = 5 * 60 * 1000
+const OSS_HORIZN_BASE = process.env.NEXT_PUBLIC_HORIZN_OSS_BASE || ''
 
 let cachedMembersIdMapping = null
 let cachedAvailableMonths = null
@@ -178,124 +176,35 @@ export async function getHoriznAvailableMonths() {
     return cachedAvailableMonths
   }
 
-  const supabase = assertSupabase()
-  const { data, error } = await supabase.rpc('horizn_get_available_months')
-  if (error) throw error
+  // 从 OSS available-months.json 获取可用月份
+  const res = await fetch(`${OSS_HORIZN_BASE}/available-months.json?t=${Date.now()}`)
+  if (!res.ok) throw new Error('无法获取可用月份列表')
 
-  cachedAvailableMonths = (data || []).map(item => ({
-    yearMonth: item.year_month,
-    startDate: item.start_date,
-    endDate: item.end_date,
-    scanCount: item.scan_count
-  }))
+  const data = await res.json()
+  const months = data.months || {}
+
+  // 转换为排序后的月份列表（降序）
+  cachedAvailableMonths = Object.keys(months)
+    .sort((a, b) => b.localeCompare(a))
+    .map(yearMonth => ({
+      yearMonth,
+      dayCount: months[yearMonth]?.length || 0
+    }))
+
   cachedAvailableMonthsAt = now
   return cachedAvailableMonths
 }
 
-async function runMonthlyRpc(supabase, yearMonth, sessionLimit) {
-  const { data, error } = await supabase.rpc('horizn_get_monthly_activity', {
-    p_year_month: yearMonth,
-    p_max_sessions: sessionLimit
-  })
-  if (!error) return data
-
-  if (String(error.code) === '57014' && sessionLimit > 50) {
-    const nextLimit = Math.max(50, Math.floor(sessionLimit / 2))
-    if (nextLimit < sessionLimit) {
-      console.warn('[horiznSupabase] RPC timeout, retry with smaller p_max_sessions:', nextLimit)
-      return runMonthlyRpc(supabase, yearMonth, nextLimit)
-    }
-  }
-
-  throw error
-}
-
-export async function getHoriznMonthlyBase(yearMonth, maxSessions = DEFAULT_MAX_SESSIONS) {
-  const cacheKey = `${yearMonth || ''}:${maxSessions}`
-  if (monthlyBaseCache.has(cacheKey)) {
-    const cached = monthlyBaseCache.get(cacheKey)
-    return typeof cached?.then === 'function' ? await cached : cached
-  }
-
-  const supabase = assertSupabase()
-
-  const promise = (async () => {
-    const membersPromise = getMembersIdMapping().catch((e) => {
-      console.warn('[horiznSupabase] Failed to load members mapping:', e)
-      return {}
-    })
-    const data = await runMonthlyRpc(supabase, yearMonth, maxSessions)
-    const sessions = Array.isArray(data?.sessions) ? data.sessions : []
-
-    const playerIdSet = new Set()
-    sessions.forEach((session) => {
-      const entries = Array.isArray(session?.entries) ? session.entries : []
-      entries.forEach(e => playerIdSet.add(e.player_id))
-    })
-
-    const [membersMappingRaw] = await Promise.all([membersPromise])
-    const rpcMapping = buildIdMapping(data?.id_mapping || {})
-    const membersMapping = membersMappingRaw || {}
-
-    const mergedMapping = { ...membersMapping, ...rpcMapping }
-    const idMapping = {}
-    playerIdSet.forEach((playerId) => {
-      if (mergedMapping[playerId]) idMapping[playerId] = mergedMapping[playerId]
-    })
-
-    // 月份边界，用于离队标记
-    const start = parseDateStr(`${yearMonth}01`) || new Date()
-    const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59)
-
-    const allNames = new Set()
-    Object.values(idMapping).forEach((info) => allNames.add(info?.name))
-    playerIdSet.forEach((playerId) => {
-      if (!mergedMapping[playerId]) allNames.add(playerId)
-    })
-
-    return {
-      yearMonth,
-      sessions,
-      idMapping,
-      colorMap: generateColorMap(Array.from(allNames).filter(Boolean)),
-      monthStart: start,
-      monthEnd: end
-    }
-  })()
-
-  monthlyBaseCache.set(cacheKey, promise)
-  try {
-    const resolved = await promise
-    monthlyBaseCache.set(cacheKey, resolved)
-    return resolved
-  } catch (e) {
-    monthlyBaseCache.delete(cacheKey)
-    throw e
-  }
-}
 
 export function buildHoriznTimelineFromBase(base, valueKey) {
   return buildTimeline(base?.sessions || [], base?.idMapping || {}, valueKey, base?.monthStart, base?.monthEnd).timeline
 }
 
-export async function getHoriznMonthlyData(yearMonth, maxSessions = DEFAULT_MAX_SESSIONS) {
-  const base = await getHoriznMonthlyBase(yearMonth, maxSessions)
-  const weeklyTimeline = buildHoriznTimelineFromBase(base, 'weekly_activity')
-  const seasonTimeline = buildHoriznTimelineFromBase(base, 'season_activity')
-
-  return {
-    weekly: { timeline: weeklyTimeline, colorMap: base.colorMap, idMapping: base.idMapping },
-    season: { timeline: seasonTimeline, colorMap: base.colorMap, idMapping: base.idMapping }
-  }
-}
 
 export async function getLatestHoriznMonth() {
   const months = await getHoriznAvailableMonths()
   return months?.[0]?.yearMonth || null
 }
-
-
-const OSS_HORIZN_BASE = 'https://lingflow.oss-cn-heyuan.aliyuncs.com/mw-gacha-simulation/horizn'
 
 /**
  * 从 OSS 获取预缓存数据（最快）
@@ -395,18 +304,10 @@ export async function getHoriznMonthlyBaseFromOSS(yearMonth) {
 }
 
 /**
- * 智能获取月度数据：OSS（预缓存）→ 原始 RPC
+ * 获取月度数据（从 OSS）
  */
-export async function getHoriznMonthlyBaseSmart(yearMonth, maxSessions = DEFAULT_MAX_SESSIONS) {
-  // 1. 优先从 OSS 获取（预缓存，最快）
-  try {
-    return await getHoriznMonthlyBaseFromOSS(yearMonth)
-  } catch (e) {
-    console.warn('⚠️ OSS失败，回退到原始RPC:', e.message)
-  }
-
-  // 2. 回退到原始 RPC
-  return await getHoriznMonthlyBase(yearMonth, maxSessions)
+export async function getHoriznMonthlyBaseSmart(yearMonth) {
+  return await getHoriznMonthlyBaseFromOSS(yearMonth)
 }
 
 /**
