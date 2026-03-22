@@ -1,18 +1,18 @@
-import { getMonthlyOSSData } from '../../lib/horiznData'
+import { getServerIdMapping } from '../../lib/horiznData'
 import HoriznPage from '@/views/HoriznPage'
 
-export const revalidate = 300 // ISR: 每 5 分钟重新验证
+export const revalidate = 300
 
 export default async function HoriznYearMonthPage({ params }) {
   const { yearMonth } = params
 
-  // 服务端获取 OSS 数据，Vercel 自动缓存
-  let serverData = null
+  // 服务端只获取成员映射（Supabase，海外→海外，快）
+  let idMapping = null
   try {
-    serverData = await getMonthlyOSSData(yearMonth)
+    idMapping = await getServerIdMapping()
   } catch (e) {
-    console.error('[服务端] 数据获取失败:', e.message)
+    console.error('[服务端] 成员映射获取失败:', e.message)
   }
 
-  return <HoriznPage yearMonth={yearMonth} serverData={serverData} />
+  return <HoriznPage yearMonth={yearMonth} serverIdMapping={idMapping} />
 }

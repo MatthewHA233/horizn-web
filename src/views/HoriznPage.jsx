@@ -11,10 +11,10 @@ import KickReviewModal from '@/components/Horizn/KickReviewModal'
 import MemberEventsModal from '@/components/Horizn/MemberEventsModal'
 import MemberAdminModal from '@/components/Horizn/MemberAdminModal'
 import { CDN_BASE_URL } from '@/utils/constants'
-import { getHoriznAvailableMonths, getHoriznMonthlyBaseSmart, buildHoriznTimelineFromBase, buildMonthlyBaseFromServerData, fetchDuckDBIncrement } from '@/services/horiznSupabase'
+import { getHoriznAvailableMonths, buildHoriznTimelineFromBase, buildMonthlyBase, fetchDuckDBIncrement, fetchOSSSessions, cacheMonthSessions, getCachedMonthSessions } from '@/services/horiznSupabase'
 import '@/components/Layout/Sidebar.css'
 
-export default function HoriznPage({ yearMonth, serverData }) {
+export default function HoriznPage({ yearMonth, serverIdMapping }) {
   const router = useRouter()
 
   // 验证 yearMonth 格式（YYYYMM）
@@ -229,12 +229,8 @@ export default function HoriznPage({ yearMonth, serverData }) {
     setIsRefreshing(true)
 
     try {
-      // 找到当前 sessions 的最新时间戳
       const sessions = monthlyBase.sessions || []
-      let lastTs = null
-      for (const s of sessions) {
-        if (!lastTs || s.session_time > lastTs) lastTs = s.session_time
-      }
+      const lastTs = getLastTimestamp(sessions)
 
       if (!lastTs) {
         toast.error('当前无数据，无法增量刷新')
@@ -248,19 +244,9 @@ export default function HoriznPage({ yearMonth, serverData }) {
         return
       }
 
-      // 合并到 base
       const mergedSessions = [...sessions, ...newSessions]
-      const newBase = {
-        ...monthlyBase,
-        sessions: mergedSessions,
-      }
-
-      // 重建时间线
-      const weeklyTimeline = buildHoriznTimelineFromBase(newBase, 'weekly_activity')
-      const weekly = { timeline: weeklyTimeline, colorMap: newBase.colorMap, idMapping: newBase.idMapping }
-
-      setMonthlyBase(newBase)
-      setPreloadedData({ weekly, season: null }) // season 会在空闲时重新预计算
+      applySessionsToUI(mergedSessions, monthlyBase.idMapping)
+      cacheMonthSessions(yearMonth, mergedSessions)
 
       toast.success(`已更新 ${newSessions.length} 帧数据`, { duration: 2000 })
       console.log(`🔄 刷新完成: +${newSessions.length}帧, 总计${mergedSessions.length}帧`)
@@ -297,55 +283,85 @@ export default function HoriznPage({ yearMonth, serverData }) {
     fetchMonths()
   }, [showMonthMenu, availableMonths.length])
 
-  // 加载数据：优先使用服务端预取的 serverData，否则客户端 fallback
+  // 用 sessions 构建 base 并设置到状态
+  const applySessionsToUI = (sessions, idMapping) => {
+    const t0 = performance.now()
+    const base = buildMonthlyBase(yearMonth, sessions, idMapping)
+    const weeklyTimeline = buildHoriznTimelineFromBase(base, 'weekly_activity')
+    const weekly = { timeline: weeklyTimeline, colorMap: base.colorMap, idMapping: base.idMapping }
+    setMonthlyBase(base)
+    setPreloadedData({ weekly, season: null })
+    console.log(`📊 时间线构建: ${(performance.now() - t0).toFixed(0)}ms | ${weeklyTimeline.length}帧`)
+    return base
+  }
+
+  // 找到 sessions 中最新的时间戳
+  const getLastTimestamp = (sessions) => {
+    let last = null
+    for (const s of sessions) {
+      if (!last || s.session_time > last) last = s.session_time
+    }
+    return last
+  }
+
+  // 加载数据：本地缓存 → OSS → 自动 DuckDB 增量
   useEffect(() => {
-    const loadAllData = async () => {
+    const idMapping = serverIdMapping || {}
+    let cancelled = false
+
+    const loadData = async () => {
       try {
         setPreloadedData({ weekly: null, season: null })
         setMonthlyBase(null)
 
-        const t0 = performance.now()
-        let base
+        // 1. 尝试读取本地缓存
+        const cached = await getCachedMonthSessions(yearMonth)
+        let sessions = null
 
-        if (serverData) {
-          // 服务端已预取数据，直接构建 base（无网络请求）
-          base = buildMonthlyBaseFromServerData(serverData)
-          console.log(
-            `⚡ 使用服务端预取数据 | ${serverData.dayCount}天` +
-            (serverData.duckDBFrames ? ` + DuckDB增量${serverData.duckDBFrames}帧` : '') +
-            ` | 服务端耗时: ${serverData.fetchTime}ms`
-          )
-        } else {
-          // 客户端 fallback（切换月份等场景）
-          base = await getHoriznMonthlyBaseSmart(yearMonth)
+        if (cached?.sessions?.length) {
+          sessions = cached.sessions
+          applySessionsToUI(sessions, idMapping)
+          console.log(`💾 本地缓存命中: ${yearMonth} | ${sessions.length}帧 | 缓存于${Math.round((Date.now() - cached.cachedAt) / 1000)}s前`)
         }
 
-        const t1 = performance.now()
+        // 2. 无缓存 → 从 OSS 拉取（客户端→国内OSS）
+        if (!sessions) {
+          console.log(`📦 首次加载 ${yearMonth}，从 OSS 获取...`)
+          sessions = await fetchOSSSessions(yearMonth)
+          if (cancelled) return
+          applySessionsToUI(sessions, idMapping)
+          // 写入缓存
+          cacheMonthSessions(yearMonth, sessions)
+        }
 
-        const weeklyTimeline = buildHoriznTimelineFromBase(base, 'weekly_activity')
-        const t2 = performance.now()
-
-        const weekly = { timeline: weeklyTimeline, colorMap: base.colorMap, idMapping: base.idMapping }
-
-        setMonthlyBase(base)
-        setPreloadedData({ weekly, season: null })
-
-        console.log(
-          `📊 加载完成 | 数据准备: ${(t1 - t0).toFixed(0)}ms | 构建时间线: ${(t2 - t1).toFixed(0)}ms | 总计: ${(t2 - t0).toFixed(0)}ms | ${weeklyTimeline.length} 帧`
-        )
+        // 3. 自动 DuckDB 增量刷新
+        const lastTs = getLastTimestamp(sessions)
+        if (lastTs) {
+          const newSessions = await fetchDuckDBIncrement(lastTs, yearMonth)
+          if (cancelled) return
+          if (newSessions.length > 0) {
+            sessions = [...sessions, ...newSessions]
+            applySessionsToUI(sessions, idMapping)
+            cacheMonthSessions(yearMonth, sessions)
+            console.log(`🔄 自动增量: +${newSessions.length}帧`)
+          }
+        }
       } catch (error) {
         console.error('[HoriznPage] 数据加载失败:', error)
-        setPreloadedData({
-          weekly: { timeline: [], colorMap: {}, idMapping: {} },
-          season: { timeline: [], colorMap: {}, idMapping: {} }
-        })
-        setMonthlyBase(null)
-        toast.error('加载数据失败，请稍后重试')
+        if (!cancelled) {
+          setPreloadedData({
+            weekly: { timeline: [], colorMap: {}, idMapping: {} },
+            season: { timeline: [], colorMap: {}, idMapping: {} }
+          })
+          setMonthlyBase(null)
+          toast.error('加载数据失败，请稍后重试')
+        }
       }
     }
 
-    loadAllData()
-  }, [yearMonth, serverData])
+    loadData()
+    return () => { cancelled = true }
+  }, [yearMonth, serverIdMapping])
 
   // 空闲时预计算赛季时间线，避免切换标签时卡顿（不阻塞首屏）
   useEffect(() => {

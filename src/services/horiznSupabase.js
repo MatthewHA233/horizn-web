@@ -203,11 +203,125 @@ export function buildHoriznTimelineFromBase(base, valueKey) {
   return buildTimeline(base?.sessions || [], base?.idMapping || {}, valueKey, base?.monthStart, base?.monthEnd).timeline
 }
 
+// ===================================================
+// 客户端本地缓存（IndexedDB/localStorage）
+// sessions 数据量大，用 IndexedDB
+// ===================================================
+
+const DB_NAME = 'horizn_cache'
+const DB_VERSION = 1
+const STORE_NAME = 'monthly_sessions'
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION)
+    req.onupgradeneeded = () => {
+      const db = req.result
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME)
+      }
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
 /**
- * 从服务端预取的数据构建 monthlyBase（无网络请求）
+ * 保存月度 sessions 到客户端缓存
  */
-export function buildMonthlyBaseFromServerData(serverData) {
-  const { yearMonth, sessions, idMapping, allNames } = serverData
+export async function cacheMonthSessions(yearMonth, sessions) {
+  try {
+    const db = await openDB()
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    tx.objectStore(STORE_NAME).put({
+      sessions,
+      cachedAt: Date.now(),
+    }, yearMonth)
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej })
+    console.log(`💾 已缓存 ${yearMonth}: ${sessions.length}帧`)
+  } catch (e) {
+    console.warn('💾 缓存写入失败:', e.message)
+  }
+}
+
+/**
+ * 从客户端缓存读取月度 sessions
+ * @returns {{ sessions, cachedAt } | null}
+ */
+export async function getCachedMonthSessions(yearMonth) {
+  try {
+    const db = await openDB()
+    const tx = db.transaction(STORE_NAME, 'readonly')
+    const req = tx.objectStore(STORE_NAME).get(yearMonth)
+    return new Promise((resolve) => {
+      req.onsuccess = () => resolve(req.result || null)
+      req.onerror = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 从 OSS 获取 sessions（不含 idMapping，纯客户端调用）
+ * 国内客户端 → 国内 OSS，直连快
+ */
+export async function fetchOSSSessions(yearMonth) {
+  const t0 = performance.now()
+
+  // 1. 获取可用天数
+  const availableMonthsRes = await fetch(`${OSS_HORIZN_BASE}/available-months.json?t=${Date.now()}`)
+  if (!availableMonthsRes.ok) throw new Error('无法获取可用月份列表')
+  const availableMonths = await availableMonthsRes.json()
+  const availableDays = availableMonths.months?.[yearMonth]
+  if (!availableDays || availableDays.length === 0) {
+    throw new Error(`${yearMonth} 无可用数据`)
+  }
+
+  // 2. 并行拉取每天数据
+  const dayPromises = availableDays.map(dayStr =>
+    fetch(`${OSS_HORIZN_BASE}/timeline/${yearMonth}/${dayStr}.json`)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null)
+  )
+  const daysData = await Promise.all(dayPromises)
+  const days = daysData.filter(Boolean).sort((a, b) => a.date.localeCompare(b.date))
+
+  // 3. 转换为 sessions 格式
+  const sessions = []
+  days.forEach(day => {
+    const dateStr = day.date
+    ;(day.timeline || []).forEach(frame => {
+      sessions.push({
+        session_time: `${dateStr} ${frame.ts}:00`,
+        entries: (frame.d || []).map(p => ({
+          player_id: p.p,
+          weekly_activity: p.w || 0,
+          season_activity: p.s || 0
+        }))
+      })
+    })
+  })
+
+  console.log(`📦 OSS拉取完成: ${days.length}天 ${sessions.length}帧 ${(performance.now() - t0).toFixed(0)}ms`)
+  return sessions
+}
+
+/**
+ * 用 sessions + idMapping 构建 monthlyBase
+ */
+export function buildMonthlyBase(yearMonth, sessions, idMapping) {
+  const allNames = new Set()
+  Object.values(idMapping || {}).forEach(info => {
+    if (info?.name) allNames.add(info.name)
+  })
+  // 也从 sessions 中收集（可能有 idMapping 里没有的人）
+  sessions.forEach(s => {
+    s.entries.forEach(e => {
+      const info = idMapping?.[e.player_id]
+      if (info?.name) allNames.add(info.name)
+    })
+  })
 
   const start = parseDateStr(`${yearMonth}01`) || new Date()
   const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59)
@@ -216,10 +330,9 @@ export function buildMonthlyBaseFromServerData(serverData) {
     yearMonth,
     sessions,
     idMapping: idMapping || {},
-    colorMap: generateColorMap(allNames || []),
+    colorMap: generateColorMap(Array.from(allNames).filter(Boolean)),
     monthStart: start,
     monthEnd: end,
-    _fromServer: true
   }
 }
 
