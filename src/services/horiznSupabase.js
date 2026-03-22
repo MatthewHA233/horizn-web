@@ -227,10 +227,11 @@ function openDB() {
 }
 
 /**
- * 保存月度数据到客户端缓存（sessions + idMapping + colorMap）
- * 所有数据一起缓存，打开页面时本地先全部渲染出来
+ * 保存月度数据到客户端缓存
+ * sessions + idMapping + colorMap + 预计算的 weeklyTimeline
+ * 下次打开直接 setState，跳过 buildTimeline 计算
  */
-export async function cacheMonthData(yearMonth, { sessions, idMapping, colorMap }) {
+export async function cacheMonthData(yearMonth, { sessions, idMapping, colorMap, weeklyTimeline }) {
   try {
     const db = await openDB()
     const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -238,6 +239,7 @@ export async function cacheMonthData(yearMonth, { sessions, idMapping, colorMap 
       sessions,
       idMapping,
       colorMap,
+      weeklyTimeline,
       cachedAt: Date.now(),
     }, yearMonth)
     await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej })
@@ -249,7 +251,7 @@ export async function cacheMonthData(yearMonth, { sessions, idMapping, colorMap 
 
 /**
  * 从客户端缓存读取月度数据
- * @returns {{ sessions, idMapping, colorMap, cachedAt } | null}
+ * @returns {{ sessions, idMapping, colorMap, weeklyTimeline, cachedAt } | null}
  */
 export async function getCachedMonthData(yearMonth) {
   try {

@@ -245,8 +245,7 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
       }
 
       const mergedSessions = [...sessions, ...newSessions]
-      const base = applyToUI(mergedSessions, monthlyBase.idMapping)
-      saveCache(yearMonth, mergedSessions, monthlyBase.idMapping, base.colorMap)
+      fullBuildAndRender(mergedSessions, monthlyBase.idMapping)
 
       toast.success(`已更新 ${newSessions.length} 帧数据`, { duration: 2000 })
       console.log(`🔄 刷新完成: +${newSessions.length}帧, 总计${mergedSessions.length}帧`)
@@ -283,8 +282,8 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
     fetchMonths()
   }, [showMonthMenu, availableMonths.length])
 
-  // 用 sessions + idMapping 构建 base 并渲染到 UI
-  const applyToUI = (sessions, idMapping, cachedColorMap) => {
+  // 完整构建：sessions + idMapping → base + weeklyTimeline → 渲染 + 写缓存
+  const fullBuildAndRender = (sessions, idMapping, cachedColorMap) => {
     const t0 = performance.now()
     const base = buildMonthlyBase(yearMonth, sessions, idMapping, cachedColorMap)
     const weeklyTimeline = buildHoriznTimelineFromBase(base, 'weekly_activity')
@@ -292,6 +291,28 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
     setMonthlyBase(base)
     setPreloadedData({ weekly, season: null })
     console.log(`📊 时间线构建: ${(performance.now() - t0).toFixed(0)}ms | ${weeklyTimeline.length}帧`)
+    // 异步写缓存（不阻塞渲染）
+    cacheMonthData(yearMonth, {
+      sessions, idMapping: base.idMapping, colorMap: base.colorMap, weeklyTimeline,
+    })
+    return base
+  }
+
+  // 快速渲染：直接用缓存的 timeline，跳过 buildTimeline 计算
+  const fastRender = (cached) => {
+    const t0 = performance.now()
+    const base = {
+      yearMonth,
+      sessions: cached.sessions,
+      idMapping: cached.idMapping || {},
+      colorMap: cached.colorMap || {},
+      monthStart: new Date(yearMonth.slice(0, 4), parseInt(yearMonth.slice(4, 6)) - 1, 1),
+      monthEnd: new Date(yearMonth.slice(0, 4), parseInt(yearMonth.slice(4, 6)), 0, 23, 59, 59),
+    }
+    const weekly = { timeline: cached.weeklyTimeline, colorMap: base.colorMap, idMapping: base.idMapping }
+    setMonthlyBase(base)
+    setPreloadedData({ weekly, season: null })
+    console.log(`⚡ 快速渲染: ${(performance.now() - t0).toFixed(0)}ms | ${cached.weeklyTimeline.length}帧 (跳过计算)`)
     return base
   }
 
@@ -304,74 +325,80 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
     return last
   }
 
-  // 写入缓存（从当前 base 中提取 idMapping + colorMap 一并存入）
-  const saveCache = (ym, sessions, idMapping, colorMap) => {
-    cacheMonthData(ym, { sessions, idMapping, colorMap })
-  }
-
   // ============================================================
-  // 数据加载：本地有什么先上什么，后台静默刷新
-  // 1. IndexedDB 缓存 → 立刻渲染（秒开）
-  // 2. 后台并行：serverIdMapping 合并 + DuckDB 增量
-  // 3. 无缓存时 → OSS 拉取 → 再增量
+  // 数据加载：本地有什么先上什么，后台静默并行刷新
+  // 1. IndexedDB → 直接渲染（有 timeline 直接用，跳过计算）
+  // 2. 并行：idMapping 刷新 + DuckDB 增量
+  // 3. 无缓存 → OSS 拉取 → 再增量
   // ============================================================
   useEffect(() => {
     let cancelled = false
 
     const loadData = async () => {
       try {
-        // 1. 立刻读本地缓存，有就先渲染
+        // 1. 立刻读本地缓存
         const cached = await getCachedMonthData(yearMonth)
         let sessions = null
         let idMapping = null
-        let colorMap = null
 
         if (cached?.sessions?.length) {
           sessions = cached.sessions
           idMapping = cached.idMapping || {}
-          colorMap = cached.colorMap || null
-          // 先用本地缓存的 idMapping + colorMap 渲染（秒开）
-          applyToUI(sessions, idMapping, colorMap)
+
+          // 有预计算的 timeline → 直接 setState（跳过 buildTimeline）
+          if (cached.weeklyTimeline?.length) {
+            fastRender(cached)
+          } else {
+            // 老格式缓存，没有 timeline，需要计算一次
+            fullBuildAndRender(sessions, idMapping, cached.colorMap)
+          }
           console.log(`💾 本地缓存命中: ${yearMonth} | ${sessions.length}帧 ${Object.keys(idMapping).length}人 | ${Math.round((Date.now() - cached.cachedAt) / 1000)}s前`)
         }
 
-        // 2. 如果服务端带来了新的 idMapping，静默刷新（名字/入离队可能有变）
+        // 2. 有缓存 → 并行发起 idMapping 刷新 + DuckDB 增量
         const freshIdMapping = serverIdMapping || {}
         const hasNewIdMapping = Object.keys(freshIdMapping).length > 0
-        if (hasNewIdMapping && sessions) {
-          // 服务端 idMapping 比本地缓存更新，重新渲染
-          idMapping = freshIdMapping
-          const base = applyToUI(sessions, idMapping)
-          colorMap = base.colorMap
-          saveCache(yearMonth, sessions, idMapping, colorMap)
+
+        if (sessions) {
+          // 用最佳 idMapping
+          if (hasNewIdMapping) idMapping = freshIdMapping
+
+          // DuckDB 增量和 idMapping 刷新结果一起应用
+          const lastTs = getLastTimestamp(sessions)
+          const incrementPromise = lastTs
+            ? fetchDuckDBIncrement(lastTs, yearMonth).catch(() => [])
+            : Promise.resolve([])
+
+          const newSessions = await incrementPromise
           if (cancelled) return
+
+          // 只要有任何变化（新 idMapping 或新增量），就重新构建一次
+          const hasIncrement = newSessions.length > 0
+          if (hasNewIdMapping || hasIncrement) {
+            if (hasIncrement) {
+              sessions = [...sessions, ...newSessions]
+              console.log(`🔄 自动增量: +${newSessions.length}帧`)
+            }
+            fullBuildAndRender(sessions, idMapping)
+          }
+          return
         }
 
-        // 使用最佳可用 idMapping（优先服务端，其次本地缓存）
-        if (!idMapping || Object.keys(idMapping).length === 0) {
-          idMapping = hasNewIdMapping ? freshIdMapping : {}
-        }
+        // 3. 无缓存 → 从 OSS 拉取（客户端→国内 OSS）
+        idMapping = hasNewIdMapping ? freshIdMapping : {}
+        console.log(`📦 首次加载 ${yearMonth}，从 OSS 获取...`)
+        sessions = await fetchOSSSessions(yearMonth)
+        if (cancelled) return
+        fullBuildAndRender(sessions, idMapping)
 
-        // 3. 无缓存 → 从 OSS 拉取（客户端→国内OSS）
-        if (!sessions) {
-          console.log(`📦 首次加载 ${yearMonth}，从 OSS 获取...`)
-          sessions = await fetchOSSSessions(yearMonth)
-          if (cancelled) return
-          const base = applyToUI(sessions, idMapping)
-          colorMap = base.colorMap
-          saveCache(yearMonth, sessions, idMapping, colorMap)
-        }
-
-        // 4. 自动 DuckDB 增量刷新
+        // 4. OSS 拉完后自动增量
         const lastTs = getLastTimestamp(sessions)
         if (lastTs) {
           const newSessions = await fetchDuckDBIncrement(lastTs, yearMonth)
           if (cancelled) return
           if (newSessions.length > 0) {
             sessions = [...sessions, ...newSessions]
-            const base = applyToUI(sessions, idMapping)
-            colorMap = base.colorMap
-            saveCache(yearMonth, sessions, idMapping, colorMap)
+            fullBuildAndRender(sessions, idMapping)
             console.log(`🔄 自动增量: +${newSessions.length}帧`)
           }
         }
