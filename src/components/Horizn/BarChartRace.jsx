@@ -70,7 +70,6 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
       // 只标记最近 4 周内加入的成员
       if (weeksAgo >= 0 && weeksAgo <= 4) {
         newMembers[player.name] = weeksAgo === 0 ? 1 : weeksAgo + 1
-        console.log(`[BarChartRace] New member: ${player.name}, joined: ${joinDate}, weeks: ${newMembers[player.name]}`)
       }
     }
 
@@ -113,7 +112,8 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
 
       // 如果有预加载的数据，直接使用；若是 supabase 标签即使为空也不回源 OSS
       if (preloadedData && preloadedData.timeline) {
-        console.log('[BarChartRace] Using preloaded data, frames:', preloadedData.timeline.length)
+        console.time('⏱ 图表渲染准备')
+        console.log(`📊 使用预加载数据: ${preloadedData.timeline.length} 帧`)
 
         setTimeline(preloadedData.timeline)
         setColorMap(preloadedData.colorMap)
@@ -122,7 +122,8 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
         // 使用当前 timeline 的 playerInfo.joinDate 计算新成员
         const newMembers = calculateNewMembers(preloadedData.timeline)
         setNewMemberMap(newMembers)
-        console.log('[BarChartRace] New members detected (from preloaded):', Object.keys(newMembers).length)
+        console.log(`👤 新成员: ${Object.keys(newMembers).length} 人`)
+        console.timeEnd('⏱ 图表渲染准备')
 
         setLoading(false)
         if (csvPath.startsWith('supabase-')) return
@@ -135,7 +136,8 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
           ? `${OSS_BASE_URL}/${csvPath}?t=${Date.now()}`
           : `/${csvPath}`
 
-        console.log('[BarChartRace] Loading CSV from:', url)
+        console.time('⏱ CSV加载+解析')
+        console.log(`📂 加载CSV: ${url}`)
 
         const response = await fetch(url)
         if (!response.ok) {
@@ -143,10 +145,10 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
         }
 
         const csvText = await response.text()
-        console.log('[BarChartRace] CSV loaded, length:', csvText.length)
+        console.log(`📦 CSV大小: ${(csvText.length / 1024).toFixed(1)} KB`)
 
         const timelineData = parseBarChartRaceCSV(csvText)
-        console.log('[BarChartRace] Parsed timeline frames:', timelineData.length)
+        console.log(`📊 解析完成: ${timelineData.length} 帧`)
 
         // 生成颜色映射
         const allNames = new Set()
@@ -163,9 +165,10 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
         // 使用当前 timeline 的 playerInfo.joinDate 计算新成员
         const newMembers = calculateNewMembers(timelineData)
         setNewMemberMap(newMembers)
-        console.log('[BarChartRace] New members detected:', Object.keys(newMembers).length)
+        console.log(`👤 新成员: ${Object.keys(newMembers).length} 人`)
+        console.timeEnd('⏱ CSV加载+解析')
       } catch (err) {
-        console.error('[BarChartRace] Error loading CSV:', err)
+        console.error('CSV加载失败:', err)
         setError(err.message)
       } finally {
         setLoading(false)
@@ -259,7 +262,7 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
       const maxItems = Math.floor(availableHeight / itemHeight)
       const finalMaxItems = Math.max(10, Math.min(40, maxItems))
 
-      console.log('[BarChartRace] 视窗高度:', viewportHeight, '可用高度:', availableHeight, '显示条数:', finalMaxItems)
+      // 布局计算日志（静默）
       setMaxVisibleItems(finalMaxItems)
     }
 

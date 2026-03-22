@@ -311,7 +311,7 @@ export async function getHoriznMonthlyBaseCached(yearMonth) {
   const supabase = assertSupabase()
 
   const promise = (async () => {
-    console.log('[horiznSupabase] Fetching from cache table (direct query):', yearMonth)
+    console.time('  ⏱ Supabase缓存表查询')
     const startTime = Date.now()
 
     // 并行查询：缓存表 + 成员映射
@@ -329,8 +329,8 @@ export async function getHoriznMonthlyBaseCached(yearMonth) {
       throw cacheResult.error
     }
 
-    const elapsed = Date.now() - startTime
-    console.log(`[horiznSupabase] Cache fetch took ${elapsed}ms`)
+    console.timeEnd('  ⏱ Supabase缓存表查询')
+    console.log(`  📦 缓存表结果: ${Date.now() - startTime}ms`)
 
     const days = cacheResult.data || []
     const idMapping = membersResult || {}
@@ -401,7 +401,7 @@ export async function getHoriznMonthlyBaseFromAPI(yearMonth) {
   }
 
   const promise = (async () => {
-    console.log('[horiznSupabase] Fetching from API (server cached):', yearMonth)
+    console.time('  ⏱ API缓存请求')
     const startTime = Date.now()
 
     const res = await fetch(`/api/horizn/timeline?yearMonth=${yearMonth}`)
@@ -411,8 +411,8 @@ export async function getHoriznMonthlyBaseFromAPI(yearMonth) {
     }
 
     const data = await res.json()
-    const elapsed = Date.now() - startTime
-    console.log(`[horiznSupabase] API fetch took ${elapsed}ms`)
+    console.timeEnd('  ⏱ API缓存请求')
+    console.log(`  📦 API结果: ${Date.now() - startTime}ms`)
 
     const { days, idMapping, totalFrames } = data
 
@@ -480,7 +480,7 @@ export async function getHoriznMonthlyBaseFromOSS(yearMonth) {
   }
 
   const promise = (async () => {
-    console.log('[horiznSupabase] Fetching from OSS:', yearMonth)
+    console.time('  ⏱ OSS数据拉取')
     const startTime = Date.now()
 
     // 并行获取 idMapping（Supabase）和可用月份信息（OSS）
@@ -499,7 +499,7 @@ export async function getHoriznMonthlyBaseFromOSS(yearMonth) {
       throw new Error(`Month ${yearMonth} not available in OSS`)
     }
 
-    console.log(`[horiznSupabase] OSS has ${availableDays.length} days for ${yearMonth}:`, availableDays.join(', '))
+    console.log(`  📅 OSS可用天数: ${availableDays.length}天 (${yearMonth})`)
 
     // 只请求有数据的日期
     const dayPromises = availableDays.map(dayStr =>
@@ -511,8 +511,8 @@ export async function getHoriznMonthlyBaseFromOSS(yearMonth) {
     const daysData = await Promise.all(dayPromises)
     const days = daysData.filter(Boolean).sort((a, b) => a.date.localeCompare(b.date))
 
-    const elapsed = Date.now() - startTime
-    console.log(`[horiznSupabase] OSS fetch took ${elapsed}ms, ${days.length} days`)
+    console.timeEnd('  ⏱ OSS数据拉取')
+    console.log(`  📦 OSS结果: ${days.length}天, ${Date.now() - startTime}ms`)
 
     const idMapping = membersMapping || {}
 
@@ -576,14 +576,14 @@ export async function getHoriznMonthlyBaseSmart(yearMonth, maxSessions = DEFAULT
   try {
     return await getHoriznMonthlyBaseFromOSS(yearMonth)
   } catch (e) {
-    console.warn('[horiznSupabase] OSS failed, fallback to direct query:', e.message)
+    console.warn('⚠️ OSS失败，回退到缓存表查询:', e.message)
   }
 
   // 2. 回退到直接查表
   try {
     return await getHoriznMonthlyBaseCached(yearMonth)
   } catch (e) {
-    console.warn('[horiznSupabase] Direct query failed, fallback to original RPC:', e.message)
+    console.warn('⚠️ 缓存表查询失败，回退到原始RPC:', e.message)
   }
 
   // 3. 最后回退到原始 RPC

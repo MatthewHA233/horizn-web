@@ -252,13 +252,21 @@ export default function HoriznPage({ yearMonth }) {
         setPreloadedData({ weekly: null, season: null })
         setMonthlyBase(null)
 
+        console.time('⏱ 总加载耗时')
+        console.time('⏱ 获取月度基础数据')
         const base = await getHoriznMonthlyBaseSmart(yearMonth)
+        console.timeEnd('⏱ 获取月度基础数据')
+
+        console.time('⏱ 构建周活时间线')
         const weeklyTimeline = buildHoriznTimelineFromBase(base, 'weekly_activity')
+        console.timeEnd('⏱ 构建周活时间线')
+
         const weekly = { timeline: weeklyTimeline, colorMap: base.colorMap, idMapping: base.idMapping }
 
         setMonthlyBase(base)
         setPreloadedData({ weekly, season: null })
-        console.log('[HoriznPage] Preloaded weekly timeline:', weeklyTimeline.length)
+        console.timeEnd('⏱ 总加载耗时')
+        console.log(`📊 周活时间线: ${weeklyTimeline.length} 帧`)
       } catch (error) {
         console.error('[HoriznPage] Failed to load Supabase data:', error)
         setPreloadedData({
@@ -293,9 +301,9 @@ export default function HoriznPage({ yearMonth }) {
           ...prev,
           season: { timeline: seasonTimeline, colorMap: monthlyBase.colorMap, idMapping: monthlyBase.idMapping }
         }))
-        console.log('[HoriznPage] Precomputed season timeline:', seasonTimeline.length)
+        console.log(`📊 赛季时间线(空闲预计算): ${seasonTimeline.length} 帧`)
       } catch (e) {
-        console.warn('[HoriznPage] Failed to precompute season timeline:', e)
+        console.warn('赛季时间线预计算失败:', e)
       }
     })
 
