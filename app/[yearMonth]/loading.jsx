@@ -1,128 +1,105 @@
 export default function Loading() {
-  // 确定性伪随机：基于索引产生"随机"但 SSR/CSR 一致的值
-  const hash = (i, seed = 0) => ((i * 2654435761 + seed) >>> 0) % 100
+  // 确定性伪随机
+  const h = (i, s = 0) => ((i * 2654435761 + s) >>> 0) % 100
 
-  // 25 行条形图数据：宽度递减 + 波动，名称宽度也各不相同
-  const rows = Array.from({ length: 25 }, (_, i) => {
-    const baseWidth = Math.max(8, 95 - i * 3.5)
-    const jitter = (hash(i, 7) % 9) - 4 // -4 ~ +4 的波动
-    const barWidth = Math.min(97, Math.max(6, baseWidth + jitter))
-    const nameWidth = 35 + (hash(i, 13) % 50) // 35%~85%
-    const hue = (hash(i, 31) * 3.6) % 360
-    return { barWidth, nameWidth, hue }
+  const bars = Array.from({ length: 25 }, (_, i) => {
+    const base = Math.max(5, 96 - i * 3.6)
+    const jitter = (h(i, 7) % 7) - 3
+    return {
+      width: Math.min(98, Math.max(4, base + jitter)),
+      nameW: 30 + h(i, 13) % 55,
+      color: `hsl(${h(i, 31) * 3.6 % 360}, ${35 + h(i, 51) % 20}%, ${30 + h(i, 71) % 15}%)`,
+    }
   })
 
   return (
     <div className="flex flex-col bg-gradient-to-b from-gray-900 to-black" style={{ height: '100dvh' }}>
       <style>{`
-        /* 基础 shimmer 扫光 */
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
+        @keyframes pulse-subtle {
+          0%, 100% { opacity: 0.5; }
+          50% { opacity: 0.85; }
         }
-        .sk {
-          background: linear-gradient(
-            90deg,
-            var(--sk-base, rgba(31,41,55,0.8)) 25%,
-            var(--sk-shine, rgba(55,65,81,0.9)) 50%,
-            var(--sk-base, rgba(31,41,55,0.8)) 75%
-          );
-          background-size: 200% 100%;
-          animation: shimmer 1.5s ease-in-out infinite;
-          border-radius: 2px;
+        .sk-pulse {
+          animation: pulse-subtle 2s ease-in-out infinite;
         }
-
-        /* 条形图专用：带宽度脉动，模拟数据在波动 */
-        @keyframes bar-breathe {
-          0%, 100% { transform: scaleX(1); opacity: 0.85; }
-          50% { transform: scaleX(0.97); opacity: 1; }
+        @keyframes bar-wave {
+          0%, 100% { transform: scaleX(1); }
+          30% { transform: scaleX(0.88); }
+          70% { transform: scaleX(1.03); }
         }
         .sk-bar {
           transform-origin: left center;
-          animation:
-            shimmer 1.5s ease-in-out infinite,
-            bar-breathe 2.4s ease-in-out infinite;
-        }
-
-        /* 名称脉动：宽度微缩，像数据在刷新 */
-        @keyframes name-flicker {
-          0%, 100% { transform: scaleX(1); opacity: 0.7; }
-          40% { transform: scaleX(0.92); opacity: 0.9; }
-          70% { transform: scaleX(1.03); opacity: 0.75; }
-        }
-        .sk-name {
-          transform-origin: right center;
-          animation:
-            shimmer 1.5s ease-in-out infinite,
-            name-flicker 2.8s ease-in-out infinite;
+          animation: bar-wave 2.5s ease-in-out infinite;
         }
       `}</style>
 
-      {/* 顶部导航栏 */}
+      {/* 顶部导航栏 —— 完全复刻 HoriznPage 响应式结构 */}
       <div className="flex-shrink-0 border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between">
-            {/* 左侧：logo + tab */}
+            {/* 左侧：真实logo + 真实tab文字 */}
             <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
-              <div className="h-6 w-6 sm:h-8 sm:w-8 md:h-10 md:w-10 rounded-full sk flex-shrink-0" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/horizn.png"
+                alt="HORIZN"
+                className="h-6 w-6 sm:h-8 sm:w-8 md:h-10 md:w-10 rounded-full object-cover flex-shrink-0"
+              />
               <div className="flex gap-0.5 sm:gap-1">
-                <div className="px-3 py-2 sm:px-4 sm:py-3 md:px-6 md:py-4">
-                  <div className="h-3 sm:h-4 w-14 sm:w-16 sk" style={{ '--sk-base': 'rgba(55,65,81,0.8)', '--sk-shine': 'rgba(75,85,99,0.9)' }} />
-                </div>
-                <div className="px-3 py-2 sm:px-4 sm:py-3 md:px-6 md:py-4">
-                  <div className="h-3 sm:h-4 w-16 sm:w-20 sk" style={{ animationDelay: '0.15s' }} />
-                </div>
+                <button className="px-3 py-2 sm:px-4 sm:py-3 md:px-6 md:py-4 text-xs sm:text-sm font-medium text-white border-b-2 border-blue-500">
+                  周活跃度
+                </button>
+                <button className="px-3 py-2 sm:px-4 sm:py-3 md:px-6 md:py-4 text-xs sm:text-sm font-medium text-gray-400">
+                  赛季活跃度
+                </button>
               </div>
-              <div className="h-3.5 w-3.5 sk ml-1 sm:ml-2 rounded" style={{ animationDelay: '0.3s' }} />
             </div>
 
             {/* 右侧：月份按钮 */}
-            <div className="flex items-center gap-2 sm:gap-3 md:gap-4 pr-1 sm:pr-2">
-              <div className="flex items-center gap-1 px-2 py-1 bg-purple-600/10 border border-purple-500/20 rounded">
-                <div className="h-3 w-3 sm:h-3.5 sm:w-3.5 rounded sk flex-shrink-0" style={{ '--sk-base': 'rgba(88,28,135,0.4)', '--sk-shine': 'rgba(107,33,168,0.5)' }} />
-                <div className="hidden sm:block h-3 w-16 sk" style={{ '--sk-base': 'rgba(88,28,135,0.3)', '--sk-shine': 'rgba(107,33,168,0.4)', animationDelay: '0.2s' }} />
+            <div className="flex items-center gap-2 sm:gap-3 md:gap-4 text-[10px] sm:text-xs text-gray-400 pr-1 sm:pr-2">
+              <div className="flex items-center gap-1 px-2 py-1 bg-purple-600/20 text-purple-400 border border-purple-500/30 rounded text-[10px] font-medium sk-pulse">
+                <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="hidden sm:inline">----年--月</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 内容区 —— 条形图骨架 */}
-      <div className="flex-1 overflow-hidden">
+      {/* 条形图内容区 */}
+      <div className="flex-1 overflow-y-auto">
         <div className="py-8">
           <div className="max-w-7xl mx-auto px-6">
             <div className="flex flex-col lg:flex-row gap-4 lg:gap-8">
-              {/* 条形图 */}
+              {/* 条形图区域 */}
               <div className="flex-1 relative">
                 <div className="space-y-1">
-                  {rows.map((row, i) => (
+                  {bars.map((bar, i) => (
                     <div key={i} className="flex items-center gap-2 sm:gap-3">
-                      {/* 名次 */}
-                      <div className="w-6 sm:w-8 flex justify-center flex-shrink-0">
-                        <div
-                          className="h-3 sm:h-4 w-4 sm:w-5 sk rounded"
-                          style={{ animationDelay: `${i * 50}ms` }}
-                        />
+                      {/* 名次：真实数字 */}
+                      <div className="w-6 sm:w-8 text-center text-gray-400 text-xs sm:text-sm font-bold flex-shrink-0">
+                        {i + 1}
                       </div>
-                      {/* 玩家名称 —— 带 flicker 脉动 */}
-                      <div className="w-20 sm:w-28 md:w-36 lg:w-44 flex justify-end flex-shrink-0">
+                      {/* 名称占位条 */}
+                      <div className="w-20 sm:w-28 md:w-36 lg:w-44 flex items-center justify-end gap-0.5 flex-shrink-0">
                         <div
-                          className="h-3 sm:h-4 sk sk-name rounded"
+                          className="h-3 sm:h-3.5 bg-gray-700/60 rounded-sm sk-pulse"
                           style={{
-                            width: `${row.nameWidth}%`,
-                            animationDelay: `${i * 50 + 25}ms`
+                            width: `${bar.nameW}%`,
+                            animationDelay: `${i * 80}ms`,
                           }}
                         />
                       </div>
-                      {/* 条形图 —— 带 breathe 脉动 + 带色相的彩色底 */}
-                      <div className="flex-1 min-w-0">
+                      {/* 条形图：真实颜色 + 大幅波动 */}
+                      <div className="flex-1 relative h-3 sm:h-4 min-w-0">
                         <div
-                          className="h-3 sm:h-4 rounded sk-bar"
+                          className="h-full rounded sk-bar"
                           style={{
-                            width: `${row.barWidth}%`,
-                            '--sk-base': `hsla(${row.hue}, 45%, 22%, 0.9)`,
-                            '--sk-shine': `hsla(${row.hue}, 50%, 32%, 1)`,
-                            animationDelay: `${i * 50 + 50}ms`
+                            width: `${bar.width}%`,
+                            backgroundColor: bar.color,
+                            animationDelay: `${i * 100}ms`,
                           }}
                         />
                       </div>
@@ -130,34 +107,53 @@ export default function Loading() {
                   ))}
                 </div>
 
-                {/* 右下角时间戳占位（小屏） */}
-                <div className="lg:hidden absolute bottom-0 right-4 sm:right-8 md:right-12 text-right">
-                  <div className="h-3 sm:h-4 w-20 sk rounded mb-1" style={{ animationDelay: '0.5s' }} />
-                  <div className="h-10 sm:h-12 md:h-14 w-16 sm:w-20 sk rounded" style={{ opacity: 0.4, animationDelay: '0.6s' }} />
+                {/* 右下角时间（小屏）—— 真实布局 */}
+                <div className="lg:hidden absolute bottom-0 right-4 sm:right-8 md:right-12 text-right pointer-events-none">
+                  <div className="text-sm sm:text-base md:text-lg text-gray-400/80 font-mono leading-none sk-pulse">
+                    --月--日
+                  </div>
+                  <div className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-300/80 font-mono leading-none mt-1 sk-pulse" style={{ animationDelay: '0.2s' }}>
+                    --:--
+                  </div>
                 </div>
               </div>
 
               {/* 大屏：右侧时间 */}
               <div className="hidden lg:flex w-64 xl:w-96 flex-col justify-center items-center flex-shrink-0">
-                <div className="text-center space-y-3">
-                  <div className="h-5 xl:h-6 w-28 sk rounded mx-auto" style={{ animationDelay: '0.4s' }} />
-                  <div className="h-14 xl:h-20 w-32 xl:w-40 sk rounded mx-auto" style={{ opacity: 0.35, animationDelay: '0.5s' }} />
+                <div className="text-center">
+                  <div className="text-xl xl:text-2xl text-gray-400 mb-2 font-mono leading-none sk-pulse">
+                    --月--日
+                  </div>
+                  <div className="text-6xl xl:text-8xl font-bold text-gray-300 mb-3 xl:mb-4 font-mono leading-none sk-pulse" style={{ animationDelay: '0.2s' }}>
+                    --:--
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* 底部进度条骨架 */}
-            <div className="mt-6 space-y-2">
-              <div className="flex justify-between px-1">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="h-2.5 w-8 sk rounded" style={{ animationDelay: `${700 + i * 100}ms` }} />
-                ))}
-              </div>
-              <div className="h-6 sk rounded" style={{ opacity: 0.4, animationDelay: '0.8s' }} />
-              <div className="flex items-center gap-3 pt-1">
-                <div className="h-7 w-7 sk rounded-full" style={{ animationDelay: '0.9s' }} />
-                <div className="h-7 w-7 sk rounded-full" style={{ animationDelay: '0.95s' }} />
-                <div className="h-3 w-24 sk rounded ml-2" style={{ opacity: 0.5, animationDelay: '1s' }} />
+            {/* 播放控制 —— 复刻真实结构 */}
+            <div className="mt-4 sm:mt-6 lg:mt-8 pt-3 sm:pt-4 border-t border-gray-800/50">
+              <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-4">
+                {/* 播放按钮 */}
+                <button className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center flex-shrink-0 sk-pulse">
+                  <svg className="w-4 h-4 text-gray-300 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </button>
+
+                {/* 进度条 */}
+                <div className="flex-1 relative px-4">
+                  <div className="relative h-8 mb-1">
+                    <div className="absolute inset-x-0 bottom-0 h-px bg-gray-800" />
+                  </div>
+                  <div className="relative h-6">
+                    <div className="absolute inset-0 bg-gray-800/40 rounded" />
+                    <div className="absolute left-0 top-0 bottom-0 w-0 bg-blue-500/30 rounded" />
+                  </div>
+                </div>
+
+                {/* 速度 */}
+                <span className="text-gray-500 text-xs font-mono flex-shrink-0">1.0x</span>
               </div>
             </div>
           </div>
