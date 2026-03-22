@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { parseBarChartRaceCSV, generateColorMap } from '@/utils/csvParser'
 import { OSS_BASE_URL } from '@/utils/constants'
+import BarChartSkeleton from '@/components/Horizn/BarChartSkeleton'
 
 export default function BarChartRace({ csvPath, onDataUpdate, showValues = false, externalFrameIndex = null, preloadedData = null, highlightPlayerId = null }) {
   // 根据 csvPath 判断类型（weekly 或 season）
@@ -329,14 +330,7 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
   }, [isPlaying, timeline.length])
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-          <p className="text-gray-400">加载数据中...</p>
-        </div>
-      </div>
-    )
+    return <BarChartSkeleton showNav={false} />
   }
 
   if (error) {
