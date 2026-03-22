@@ -601,10 +601,15 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
                             {item.value.toLocaleString()}
                           </div>
                         )}
-                        {/* 比铆钉玩家高出多少（内嵌在条形图内） */}
-                        {pinnedPlayerValue != null && !isHighlighted && item.value > pinnedPlayerValue && (
-                          <div className="absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 text-[8px] sm:text-[10px] font-mono text-green-300/80 leading-none pointer-events-none">
-                            多{(item.value - pinnedPlayerValue).toLocaleString()}
+                        {/* 与铆钉玩家的差值（内嵌在条形图内） */}
+                        {pinnedPlayerValue != null && !isHighlighted && item.value !== pinnedPlayerValue && (
+                          <div className={`absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 text-[8px] sm:text-[10px] font-mono leading-none pointer-events-none ${
+                            item.value > pinnedPlayerValue ? 'text-green-300/80' : 'text-red-300/60'
+                          }`}>
+                            {item.value > pinnedPlayerValue
+                              ? `多${(item.value - pinnedPlayerValue).toLocaleString()}`
+                              : `少${(pinnedPlayerValue - item.value).toLocaleString()}`
+                            }
                           </div>
                         )}
                       </div>
