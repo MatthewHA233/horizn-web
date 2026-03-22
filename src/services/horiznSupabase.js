@@ -308,8 +308,7 @@ export async function getHoriznMonthlyBaseFromOSS(yearMonth) {
   }
 
   const promise = (async () => {
-    console.time('  ⏱ OSS数据拉取')
-    const startTime = Date.now()
+    const startTime = performance.now()
 
     // 并行获取 idMapping（Supabase）和可用月份信息（OSS）
     const [membersMapping, availableMonthsRes] = await Promise.all([
@@ -339,8 +338,7 @@ export async function getHoriznMonthlyBaseFromOSS(yearMonth) {
     const daysData = await Promise.all(dayPromises)
     const days = daysData.filter(Boolean).sort((a, b) => a.date.localeCompare(b.date))
 
-    console.timeEnd('  ⏱ OSS数据拉取')
-    console.log(`  📦 OSS结果: ${days.length}天, ${Date.now() - startTime}ms`)
+    console.log(`  📦 OSS拉取: ${days.length}天, ${(performance.now() - startTime).toFixed(0)}ms`)
 
     const idMapping = membersMapping || {}
 

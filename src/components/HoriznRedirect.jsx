@@ -15,9 +15,9 @@ export function HoriznRedirect() {
   useEffect(() => {
     const fetchLatest = async () => {
       try {
-        console.time('⏱ 获取最新月份')
+        const t0 = performance.now()
         const yearMonth = await getLatestHoriznMonth()
-        console.timeEnd('⏱ 获取最新月份')
+        console.log(`📅 获取最新月份: ${yearMonth} | ${(performance.now() - t0).toFixed(0)}ms`)
         router.replace(`/${yearMonth}`)
       } catch (error) {
         console.error('Failed to get latest horizn month:', error)

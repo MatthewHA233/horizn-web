@@ -112,18 +112,16 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
 
       // 如果有预加载的数据，直接使用；若是 supabase 标签即使为空也不回源 OSS
       if (preloadedData && preloadedData.timeline) {
-        console.time('⏱ 图表渲染准备')
-        console.log(`📊 使用预加载数据: ${preloadedData.timeline.length} 帧`)
+        const t0 = performance.now()
 
         setTimeline(preloadedData.timeline)
         setColorMap(preloadedData.colorMap)
         setCurrentFrame(Math.max(0, preloadedData.timeline.length - 1))
 
-        // 使用当前 timeline 的 playerInfo.joinDate 计算新成员
         const newMembers = calculateNewMembers(preloadedData.timeline)
         setNewMemberMap(newMembers)
-        console.log(`👤 新成员: ${Object.keys(newMembers).length} 人`)
-        console.timeEnd('⏱ 图表渲染准备')
+
+        console.log(`📊 图表准备完成 | ${preloadedData.timeline.length} 帧 | 新成员 ${Object.keys(newMembers).length} 人 | ${(performance.now() - t0).toFixed(0)}ms`)
 
         setLoading(false)
         if (csvPath.startsWith('supabase-')) return
@@ -136,8 +134,7 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
           ? `${OSS_BASE_URL}/${csvPath}?t=${Date.now()}`
           : `/${csvPath}`
 
-        console.time('⏱ CSV加载+解析')
-        console.log(`📂 加载CSV: ${url}`)
+        const tCsv0 = performance.now()
 
         const response = await fetch(url)
         if (!response.ok) {
@@ -145,10 +142,11 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
         }
 
         const csvText = await response.text()
-        console.log(`📦 CSV大小: ${(csvText.length / 1024).toFixed(1)} KB`)
+        const tCsv1 = performance.now()
 
         const timelineData = parseBarChartRaceCSV(csvText)
-        console.log(`📊 解析完成: ${timelineData.length} 帧`)
+        const tCsv2 = performance.now()
+        console.log(`📂 CSV加载: ${(csvText.length / 1024).toFixed(1)}KB, 下载 ${(tCsv1 - tCsv0).toFixed(0)}ms, 解析 ${(tCsv2 - tCsv1).toFixed(0)}ms, ${timelineData.length} 帧`)
 
         // 生成颜色映射
         const allNames = new Set()
@@ -165,8 +163,7 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
         // 使用当前 timeline 的 playerInfo.joinDate 计算新成员
         const newMembers = calculateNewMembers(timelineData)
         setNewMemberMap(newMembers)
-        console.log(`👤 新成员: ${Object.keys(newMembers).length} 人`)
-        console.timeEnd('⏱ CSV加载+解析')
+        console.log(`👤 新成员: ${Object.keys(newMembers).length} 人 | CSV总耗时: ${(performance.now() - tCsv0).toFixed(0)}ms`)
       } catch (err) {
         console.error('CSV加载失败:', err)
         setError(err.message)

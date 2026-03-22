@@ -252,21 +252,21 @@ export default function HoriznPage({ yearMonth }) {
         setPreloadedData({ weekly: null, season: null })
         setMonthlyBase(null)
 
-        console.time('⏱ 总加载耗时')
-        console.time('⏱ 获取月度基础数据')
+        const t0 = performance.now()
         const base = await getHoriznMonthlyBaseSmart(yearMonth)
-        console.timeEnd('⏱ 获取月度基础数据')
+        const t1 = performance.now()
 
-        console.time('⏱ 构建周活时间线')
         const weeklyTimeline = buildHoriznTimelineFromBase(base, 'weekly_activity')
-        console.timeEnd('⏱ 构建周活时间线')
+        const t2 = performance.now()
 
         const weekly = { timeline: weeklyTimeline, colorMap: base.colorMap, idMapping: base.idMapping }
 
         setMonthlyBase(base)
         setPreloadedData({ weekly, season: null })
-        console.timeEnd('⏱ 总加载耗时')
-        console.log(`📊 周活时间线: ${weeklyTimeline.length} 帧`)
+
+        console.log(
+          `📊 加载完成 | 获取数据: ${(t1 - t0).toFixed(0)}ms | 构建时间线: ${(t2 - t1).toFixed(0)}ms | 总计: ${(t2 - t0).toFixed(0)}ms | ${weeklyTimeline.length} 帧`
+        )
       } catch (error) {
         console.error('[HoriznPage] Failed to load Supabase data:', error)
         setPreloadedData({
