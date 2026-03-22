@@ -170,34 +170,57 @@ const buildTimeline = (sessions = [], idMapping, valueKey, monthStart, monthEnd)
   return { timeline: frames, names }
 }
 
-export async function getHoriznAvailableMonths() {
+// 缓存 available-months.json 的原始数据，供 getHoriznMonthlyBaseFromOSS 复用
+let cachedAvailableMonthsRaw = null
+
+async function fetchAvailableMonthsRaw() {
   const now = Date.now()
-  if (cachedAvailableMonths && now - cachedAvailableMonthsAt < AVAILABLE_MONTHS_CACHE_TTL_MS) {
-    return cachedAvailableMonths
+  if (cachedAvailableMonthsRaw && cachedAvailableMonths && now - cachedAvailableMonthsAt < AVAILABLE_MONTHS_CACHE_TTL_MS) {
+    return cachedAvailableMonthsRaw
   }
 
-  // 从 OSS available-months.json 获取可用月份
-  const res = await fetch(`${OSS_HORIZN_BASE}/available-months.json?t=${Date.now()}`)
+  const res = await fetch(`${OSS_HORIZN_BASE}/available-months.json?t=${now}`)
   if (!res.ok) throw new Error('无法获取可用月份列表')
 
-  const data = await res.json()
-  const months = data.months || {}
+  cachedAvailableMonthsRaw = await res.json()
+  const months = cachedAvailableMonthsRaw.months || {}
 
-  // 转换为排序后的月份列表（降序）
   cachedAvailableMonths = Object.keys(months)
     .sort((a, b) => b.localeCompare(a))
-    .map(yearMonth => ({
-      yearMonth,
-      dayCount: months[yearMonth]?.length || 0
-    }))
-
+    .map(ym => ({ yearMonth: ym, dayCount: months[ym]?.length || 0 }))
   cachedAvailableMonthsAt = now
+
+  return cachedAvailableMonthsRaw
+}
+
+export async function getHoriznAvailableMonths() {
+  await fetchAvailableMonthsRaw()
   return cachedAvailableMonths
 }
 
 
 export function buildHoriznTimelineFromBase(base, valueKey) {
   return buildTimeline(base?.sessions || [], base?.idMapping || {}, valueKey, base?.monthStart, base?.monthEnd).timeline
+}
+
+/**
+ * 从服务端预取的数据构建 monthlyBase（无网络请求）
+ */
+export function buildMonthlyBaseFromServerData(serverData) {
+  const { yearMonth, sessions, idMapping, allNames } = serverData
+
+  const start = parseDateStr(`${yearMonth}01`) || new Date()
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59)
+
+  return {
+    yearMonth,
+    sessions,
+    idMapping: idMapping || {},
+    colorMap: generateColorMap(allNames || []),
+    monthStart: start,
+    monthEnd: end,
+    _fromServer: true
+  }
 }
 
 

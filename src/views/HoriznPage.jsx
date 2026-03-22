@@ -11,10 +11,10 @@ import KickReviewModal from '@/components/Horizn/KickReviewModal'
 import MemberEventsModal from '@/components/Horizn/MemberEventsModal'
 import MemberAdminModal from '@/components/Horizn/MemberAdminModal'
 import { CDN_BASE_URL } from '@/utils/constants'
-import { getHoriznAvailableMonths, getHoriznMonthlyBaseSmart, buildHoriznTimelineFromBase } from '@/services/horiznSupabase'
+import { getHoriznAvailableMonths, getHoriznMonthlyBaseSmart, buildHoriznTimelineFromBase, buildMonthlyBaseFromServerData } from '@/services/horiznSupabase'
 import '@/components/Layout/Sidebar.css'
 
-export default function HoriznPage({ yearMonth }) {
+export default function HoriznPage({ yearMonth, serverData }) {
   const router = useRouter()
 
   // 验证 yearMonth 格式（YYYYMM）
@@ -245,7 +245,7 @@ export default function HoriznPage({ yearMonth }) {
     fetchMonths()
   }, [showMonthMenu, availableMonths.length])
 
-  // 预加载：先取 Supabase 月度基础数据 + 周活时间线（赛季时间线延后计算，提升首屏速度）
+  // 加载数据：优先使用服务端预取的 serverData，否则客户端 fallback
   useEffect(() => {
     const loadAllData = async () => {
       try {
@@ -253,7 +253,17 @@ export default function HoriznPage({ yearMonth }) {
         setMonthlyBase(null)
 
         const t0 = performance.now()
-        const base = await getHoriznMonthlyBaseSmart(yearMonth)
+        let base
+
+        if (serverData) {
+          // 服务端已预取数据，直接构建 base（无网络请求）
+          base = buildMonthlyBaseFromServerData(serverData)
+          console.log(`⚡ 使用服务端预取数据 | ${serverData.dayCount}天 | 服务端耗时: ${serverData.fetchTime}ms`)
+        } else {
+          // 客户端 fallback（切换月份等场景）
+          base = await getHoriznMonthlyBaseSmart(yearMonth)
+        }
+
         const t1 = performance.now()
 
         const weeklyTimeline = buildHoriznTimelineFromBase(base, 'weekly_activity')
@@ -265,10 +275,10 @@ export default function HoriznPage({ yearMonth }) {
         setPreloadedData({ weekly, season: null })
 
         console.log(
-          `📊 加载完成 | 获取数据: ${(t1 - t0).toFixed(0)}ms | 构建时间线: ${(t2 - t1).toFixed(0)}ms | 总计: ${(t2 - t0).toFixed(0)}ms | ${weeklyTimeline.length} 帧`
+          `📊 加载完成 | 数据准备: ${(t1 - t0).toFixed(0)}ms | 构建时间线: ${(t2 - t1).toFixed(0)}ms | 总计: ${(t2 - t0).toFixed(0)}ms | ${weeklyTimeline.length} 帧`
         )
       } catch (error) {
-        console.error('[HoriznPage] Failed to load Supabase data:', error)
+        console.error('[HoriznPage] 数据加载失败:', error)
         setPreloadedData({
           weekly: { timeline: [], colorMap: {}, idMapping: {} },
           season: { timeline: [], colorMap: {}, idMapping: {} }
@@ -279,7 +289,7 @@ export default function HoriznPage({ yearMonth }) {
     }
 
     loadAllData()
-  }, [yearMonth])
+  }, [yearMonth, serverData])
 
   // 空闲时预计算赛季时间线，避免切换标签时卡顿（不阻塞首屏）
   useEffect(() => {
