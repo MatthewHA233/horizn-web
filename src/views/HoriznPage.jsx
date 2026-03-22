@@ -475,7 +475,7 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   const currentTab = tabs.find(tab => tab.id === activeTab)
 
   return (
-    <div className="flex flex-col bg-gradient-to-b from-gray-900 to-black" style={{ height: '100dvh' }}>
+    <div className="flex flex-col bg-gradient-to-b from-gray-900 to-black overflow-hidden" style={{ height: '100dvh' }}>
       {/* Toast 通知 */}
       <Toaster
         position="top-center"
@@ -783,8 +783,8 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
         </div>
       </div>
 
-      {/* 内容区 - 可滚动 */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
+      {/* 内容区 - 填满剩余空间，滚动由 BarChartRace 内部处理 */}
+      <div className="flex-1 min-h-0">
         <BarChartRace
           key={currentTab.csvPath}
           csvPath={currentTab.csvPath}

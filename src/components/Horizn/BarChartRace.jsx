@@ -399,12 +399,12 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
   const transitionDuration = isLargeJump ? 0 : 0.3
 
   return (
-    <div className="py-8" onClick={() => setActiveTooltip(null)}>
-      <div className="max-w-7xl mx-auto px-6">
+    <div className="flex flex-col h-full" onClick={() => setActiveTooltip(null)}>
+      <div className="flex-1 min-h-0 max-w-7xl mx-auto w-full px-4 sm:px-6 pt-3 sm:pt-4 lg:pt-6">
         {/* 图表区域 */}
-        <div className="flex flex-col lg:flex-row gap-4 lg:gap-8">
-          {/* 条形图区域 */}
-          <div className="flex-1 relative">
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 h-full">
+          {/* 条形图区域 - 可滚动 */}
+          <div className="flex-1 relative overflow-y-auto min-h-0 custom-scrollbar">
             <div className="space-y-1">
               <AnimatePresence mode="popLayout">
                 {displayData.map((item, index) => {
@@ -550,9 +550,10 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
             </div>
           </div>
         </div>
+      </div>
 
-        {/* 播放控制 - 极简设计 */}
-        <div className="mt-4 sm:mt-6 lg:mt-8 pt-3 sm:pt-4 border-t border-gray-800/50">
+      {/* 播放控制 - 固定底部，不随条形图滚动 */}
+      <div className="flex-shrink-0 max-w-7xl mx-auto w-full px-4 sm:px-6 pb-2 sm:pb-3 lg:pb-4 pt-2 sm:pt-3 border-t border-gray-800/50">
           <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-4">
             {/* 播放/暂停 */}
             <button
@@ -1135,6 +1136,6 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
           </div>
         </div>
       </div>
-    </div>
   )
 }
+
