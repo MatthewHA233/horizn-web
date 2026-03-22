@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ShieldCheck, Calendar, Search, X, Pin } from 'lucide-react'
+import { ShieldCheck, Calendar, Search, X, Pin, RefreshCw } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import BarChartRace from '@/components/Horizn/BarChartRace'
 import CopyRankModal from '@/components/Horizn/CopyRankModal'
@@ -11,7 +11,7 @@ import KickReviewModal from '@/components/Horizn/KickReviewModal'
 import MemberEventsModal from '@/components/Horizn/MemberEventsModal'
 import MemberAdminModal from '@/components/Horizn/MemberAdminModal'
 import { CDN_BASE_URL } from '@/utils/constants'
-import { getHoriznAvailableMonths, getHoriznMonthlyBaseSmart, buildHoriznTimelineFromBase, buildMonthlyBaseFromServerData } from '@/services/horiznSupabase'
+import { getHoriznAvailableMonths, getHoriznMonthlyBaseSmart, buildHoriznTimelineFromBase, buildMonthlyBaseFromServerData, fetchDuckDBIncrement } from '@/services/horiznSupabase'
 import '@/components/Layout/Sidebar.css'
 
 export default function HoriznPage({ yearMonth, serverData }) {
@@ -44,6 +44,9 @@ export default function HoriznPage({ yearMonth, serverData }) {
 
   // 舷号与黑名单管理弹窗
   const [showMemberAdminModal, setShowMemberAdminModal] = useState(false)
+
+  // 刷新状态
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   // 搜索定位玩家
   const [pinnedPlayerId, setPinnedPlayerId] = useState(null)
@@ -218,6 +221,55 @@ export default function HoriznPage({ yearMonth, serverData }) {
   const handleOpenMemberAdminModal = () => {
     setShowAdminMenu(false)
     setShowMemberAdminModal(true)
+  }
+
+  // 刷新：从 DuckDB 获取增量数据，合并到当前 base
+  const handleRefresh = async () => {
+    if (isRefreshing || !monthlyBase) return
+    setIsRefreshing(true)
+
+    try {
+      // 找到当前 sessions 的最新时间戳
+      const sessions = monthlyBase.sessions || []
+      let lastTs = null
+      for (const s of sessions) {
+        if (!lastTs || s.session_time > lastTs) lastTs = s.session_time
+      }
+
+      if (!lastTs) {
+        toast.error('当前无数据，无法增量刷新')
+        return
+      }
+
+      const newSessions = await fetchDuckDBIncrement(lastTs, yearMonth)
+
+      if (newSessions.length === 0) {
+        toast('暂无新数据', { icon: '📭', duration: 2000 })
+        return
+      }
+
+      // 合并到 base
+      const mergedSessions = [...sessions, ...newSessions]
+      const newBase = {
+        ...monthlyBase,
+        sessions: mergedSessions,
+      }
+
+      // 重建时间线
+      const weeklyTimeline = buildHoriznTimelineFromBase(newBase, 'weekly_activity')
+      const weekly = { timeline: weeklyTimeline, colorMap: newBase.colorMap, idMapping: newBase.idMapping }
+
+      setMonthlyBase(newBase)
+      setPreloadedData({ weekly, season: null }) // season 会在空闲时重新预计算
+
+      toast.success(`已更新 ${newSessions.length} 帧数据`, { duration: 2000 })
+      console.log(`🔄 刷新完成: +${newSessions.length}帧, 总计${mergedSessions.length}帧`)
+    } catch (e) {
+      console.error('🔄 刷新失败:', e)
+      toast.error('刷新失败: ' + e.message)
+    } finally {
+      setIsRefreshing(false)
+    }
   }
 
   // 设置页面标题
@@ -467,8 +519,24 @@ export default function HoriznPage({ yearMonth, serverData }) {
 
             </div>
 
-            {/* 右侧：月份选择器 + 管理员标识 + 状态信息 */}
+            {/* 右侧：刷新 + 月份选择器 + 管理员标识 */}
             <div className="flex items-center gap-2 sm:gap-3 md:gap-4 text-[10px] sm:text-xs text-gray-400 pr-1 sm:pr-2">
+              {/* 刷新按钮 */}
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing || !monthlyBase}
+                className={`flex items-center gap-1 px-1.5 py-1 rounded transition-colors ${
+                  isRefreshing
+                    ? 'text-blue-400 cursor-wait'
+                    : monthlyBase
+                      ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-800 cursor-pointer'
+                      : 'text-gray-600 cursor-not-allowed'
+                }`}
+                title="从 DuckDB 增量刷新"
+              >
+                <RefreshCw className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              </button>
+
               {/* 月份选择器 */}
               <div className="relative">
                 <button

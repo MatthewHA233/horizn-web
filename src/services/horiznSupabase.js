@@ -224,6 +224,57 @@ export function buildMonthlyBaseFromServerData(serverData) {
 }
 
 
+/**
+ * 客户端从 DuckDB 获取增量 sessions（lastTimestamp 之后的数据）
+ * 用于刷新按钮：不重新加载 OSS，只拉 DuckDB 新数据
+ */
+export async function fetchDuckDBIncrement(lastTimestamp, yearMonth) {
+  if (!DUCKDB_URL || !lastTimestamp) return []
+
+  const sql = `
+    SELECT player_id, session_time, weekly_activity, season_activity
+    FROM horizn_activity_records
+    WHERE session_time > ?::timestamp
+      AND strftime(session_time, '%Y%m') = ?
+    ORDER BY session_time, player_id
+  `
+
+  try {
+    const t0 = performance.now()
+    const data = await queryDuckDB(sql, [lastTimestamp, yearMonth])
+    const rows = data.rows || []
+
+    if (rows.length === 0) {
+      console.log(`🔄 DuckDB增量: 无新数据 (从 ${lastTimestamp} 起)`)
+      return []
+    }
+
+    // 按 session_time 分组
+    const grouped = new Map()
+    for (const [player_id, session_time, weekly, season] of rows) {
+      if (!grouped.has(session_time)) {
+        grouped.set(session_time, [])
+      }
+      grouped.get(session_time).push({
+        player_id,
+        weekly_activity: weekly || 0,
+        season_activity: season || 0
+      })
+    }
+
+    const sessions = []
+    for (const [session_time, entries] of grouped) {
+      sessions.push({ session_time, entries })
+    }
+
+    console.log(`🔄 DuckDB增量: ${sessions.length}帧, ${rows.length}条 (${(performance.now() - t0).toFixed(0)}ms)`)
+    return sessions
+  } catch (e) {
+    console.warn('🔄 DuckDB增量获取失败:', e.message)
+    return []
+  }
+}
+
 export async function getLatestHoriznMonth() {
   const months = await getHoriznAvailableMonths()
   return months?.[0]?.yearMonth || null
