@@ -24,6 +24,7 @@ export default function HoriznPage({ yearMonth }) {
   }
   const [activeTab, setActiveTab] = useState('weekly')
   const [isAdmin, setIsAdmin] = useState(false) // 管理员权限状态
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false) // 超级管理员（舷号/黑名单权限）
   const [showAdminMenu, setShowAdminMenu] = useState(false)
   const [showMonthMenu, setShowMonthMenu] = useState(false)
   const [availableMonths, setAvailableMonths] = useState([])
@@ -74,6 +75,7 @@ export default function HoriznPage({ yearMonth }) {
   // 检查是否有管理员权限（客户端初始化）
   useEffect(() => {
     setIsAdmin(sessionStorage.getItem('horizn_admin_auth') === 'true')
+    setIsSuperAdmin(sessionStorage.getItem('horizn_super_auth') === 'true')
   }, [])
 
   // 从 localStorage 读取上次定位的玩家
@@ -167,7 +169,9 @@ export default function HoriznPage({ yearMonth }) {
   // 退出管理员
   const handleLogout = () => {
     sessionStorage.removeItem('horizn_admin_auth')
+    sessionStorage.removeItem('horizn_super_auth')
     setIsAdmin(false)
+    setIsSuperAdmin(false)
     setShowAdminMenu(false)
   }
 
@@ -554,15 +558,17 @@ export default function HoriznPage({ yearMonth }) {
                             </svg>
                             <span>入离队细目</span>
                           </button>
-                          <button
-                            onClick={handleOpenMemberAdminModal}
-                            className="w-full px-3 py-1.5 text-left text-xs text-emerald-400 hover:bg-gray-700 transition-colors flex items-center gap-2"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
-                            </svg>
-                            <span>舷号和黑名单</span>
-                          </button>
+                          {isSuperAdmin && (
+                            <button
+                              onClick={handleOpenMemberAdminModal}
+                              className="w-full px-3 py-1.5 text-left text-xs text-emerald-400 hover:bg-gray-700 transition-colors flex items-center gap-2"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+                              </svg>
+                              <span>舷号和黑名单</span>
+                            </button>
+                          )}
                           <div className="border-t border-gray-700"></div>
                           <button
                             onClick={handleLogout}

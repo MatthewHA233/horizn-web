@@ -1,161 +1,226 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ShieldCheck, Lock, ArrowLeft, LogIn } from 'lucide-react'
+import { Lock, ArrowLeft } from 'lucide-react'
 import { CDN_BASE_URL } from '@/utils/constants'
 
 export default function HoriznAdminLogin() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [shake, setShake] = useState(false)
+  const inputRef = useRef(null)
   const router = useRouter()
 
-  // 管理员密码（可以从环境变量读取）
-  // 兼容 Vite 和 Next.js
   const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_HORIZN_ADMIN_PASSWORD || 'admin123'
+  const SUPER_PASSWORD = process.env.NEXT_PUBLIC_HORIZN_SUPER_PASSWORD || ''
 
   useEffect(() => {
     document.title = 'HORIZN 管理员登录'
-    return () => {
-      document.title = 'HORIZN'
-    }
+    return () => { document.title = 'HORIZN' }
   }, [])
 
-  // 检查是否已登录，如果已登录则自动跳转
   useEffect(() => {
     const isAuthenticated = sessionStorage.getItem('horizn_admin_auth') === 'true'
-    if (isAuthenticated) {
-      router.push('/')
-    }
+    if (isAuthenticated) router.push('/')
   }, [router])
+
+  const triggerShake = () => {
+    setShake(true)
+    setTimeout(() => setShake(false), 450)
+  }
 
   const handleLogin = (e) => {
     e.preventDefault()
     setError('')
     setIsLoading(true)
 
-    // 模拟验证延迟（更真实的体验）
     setTimeout(() => {
-      if (password === ADMIN_PASSWORD) {
-        // 设置管理员权限标记（使用 sessionStorage，关闭浏览器后失效）
+      if (SUPER_PASSWORD && password === SUPER_PASSWORD) {
+        // 超级管理员：可访问舷号与黑名单
         sessionStorage.setItem('horizn_admin_auth', 'true')
-        // 重定向到 HORIZN 主页
+        sessionStorage.setItem('horizn_super_auth', 'true')
+        router.push('/')
+      } else if (password === ADMIN_PASSWORD) {
+        // 普通管理员
+        sessionStorage.setItem('horizn_admin_auth', 'true')
+        sessionStorage.removeItem('horizn_super_auth')
         router.push('/')
       } else {
-        setError('密码错误，请重试')
+        setError('密码错误')
         setPassword('')
         setIsLoading(false)
+        triggerShake()
+        setTimeout(() => inputRef.current?.focus(), 50)
       }
-    }, 500)
+    }, 380)
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black flex items-center justify-center p-4 sm:p-6 lg:p-8">
-      {/* 背景装饰 */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-64 h-64 sm:w-96 sm:h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-64 h-64 sm:w-96 sm:h-96 bg-purple-500/10 rounded-full blur-3xl"></div>
-      </div>
+    <div
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{ background: '#030712' }}
+    >
+      {/* 极淡的径向暗纹，避免纯黑太假 */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: 'radial-gradient(ellipse 80% 60% at 50% 30%, rgba(251,191,36,0.025) 0%, transparent 70%)',
+        }}
+      />
 
-      {/* 登录卡片 */}
-      <div className="relative w-full max-w-md">
-        <div className="bg-gray-800/80 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-700/50 overflow-hidden">
-          {/* 顶部装饰条 */}
-          <div className="h-1.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500"></div>
+      <div className="relative w-full max-w-sm">
+        {/* 主卡片 */}
+        <div
+          style={{
+            background: 'linear-gradient(160deg, #10131c 0%, #0c0e15 100%)',
+            border: '1px solid rgba(255,255,255,0.07)',
+            borderRadius: '14px',
+            boxShadow: '0 0 0 1px rgba(0,0,0,0.5), 0 24px 64px rgba(0,0,0,0.8)',
+          }}
+        >
+          {/* 顶部极细 amber 线 */}
+          <div
+            style={{
+              height: '1px',
+              background: 'linear-gradient(90deg, transparent 0%, rgba(251,191,36,0.35) 50%, transparent 100%)',
+              borderRadius: '14px 14px 0 0',
+            }}
+          />
 
-          <div className="p-6 sm:p-8 md:p-10">
-            {/* Logo和标题 */}
-            <div className="text-center mb-8">
-              <div className="relative inline-block mb-4">
-                <div className="absolute inset-0 bg-blue-500/20 rounded-full blur-xl"></div>
-                <img
-                  src={`${CDN_BASE_URL}/horizn.png`}
-                  alt="HORIZN"
-                  className="relative h-16 w-16 sm:h-20 sm:w-20 rounded-full object-cover mx-auto ring-4 ring-blue-500/30"
-                />
-              </div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2 tracking-tight flex items-center justify-center gap-2">
-                <ShieldCheck className="w-6 h-6 sm:w-7 sm:h-7" />
-                HORIZN 管理员
-              </h1>
-              <p className="text-gray-400 text-sm sm:text-base">
-                请输入管理员密码以查看详细数据
-              </p>
+          <div className="px-8 pt-10 pb-8">
+            {/* Logo */}
+            <div className="flex flex-col items-center mb-10">
+              <img
+                src={`${CDN_BASE_URL}/horizn.png`}
+                alt="HORIZN"
+                className="h-14 w-14 rounded-full object-cover mb-4"
+                style={{
+                  boxShadow: '0 0 0 1px rgba(255,255,255,0.08), 0 4px 16px rgba(0,0,0,0.6)',
+                }}
+              />
+              <span
+                className="text-xs tracking-[0.2em] uppercase"
+                style={{ color: '#4a4e63', letterSpacing: '0.18em' }}
+              >
+                Admin Access
+              </span>
             </div>
 
-            {/* 登录表单 */}
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <label htmlFor="password" className="block text-sm font-medium text-gray-300">
-                  密码
-                </label>
-                <div className="relative">
-                  <input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="请输入密码"
-                    className="w-full px-4 py-3 sm:py-3.5 bg-gray-700/50 text-white rounded-xl border border-gray-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-all placeholder:text-gray-500"
-                    autoFocus
-                    disabled={isLoading}
-                  />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    <Lock className="w-5 h-5 text-gray-500" />
-                  </div>
-                </div>
+            {/* 表单 */}
+            <form onSubmit={handleLogin}>
+              <div
+                className="relative"
+                style={{
+                  animation: shake ? 'shake 0.4s ease' : 'none',
+                }}
+              >
+                <input
+                  ref={inputRef}
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setError('') }}
+                  placeholder="密码"
+                  autoFocus
+                  disabled={isLoading}
+                  className="w-full text-sm outline-none disabled:opacity-50"
+                  style={{
+                    background: '#13161f',
+                    border: error
+                      ? '1px solid rgba(239,68,68,0.5)'
+                      : '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '8px',
+                    padding: '10px 40px 10px 14px',
+                    color: '#e2e4ed',
+                    fontSize: '15px',
+                    letterSpacing: '0.05em',
+                    caretColor: '#fbbf24',
+                    transition: 'border-color 0.15s',
+                  }}
+                />
+                <Lock
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
+                  style={{ color: '#4a4e63' }}
+                />
+              </div>
 
-                {/* 错误提示 */}
+              {/* 错误提示 */}
+              <div
+                style={{
+                  height: error ? 'auto' : 0,
+                  overflow: 'hidden',
+                  transition: 'height 0.15s',
+                }}
+              >
                 {error && (
-                  <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-                    <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
-                    <span>{error}</span>
-                  </div>
+                  <p
+                    className="text-xs mt-2 pl-1"
+                    style={{ color: 'rgba(239,68,68,0.8)' }}
+                  >
+                    {error}
+                  </p>
                 )}
               </div>
 
               <button
                 type="submit"
                 disabled={isLoading || !password}
-                className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 disabled:from-gray-600 disabled:to-gray-500 disabled:cursor-not-allowed text-white font-semibold py-3 sm:py-3.5 rounded-xl shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 transition-all duration-200 flex items-center justify-center gap-2"
+                className="w-full mt-4 text-sm font-medium transition-opacity disabled:opacity-30"
+                style={{
+                  background: password && !isLoading
+                    ? 'linear-gradient(135deg, rgba(251,191,36,0.18) 0%, rgba(251,191,36,0.10) 100%)'
+                    : 'rgba(255,255,255,0.04)',
+                  border: password && !isLoading
+                    ? '1px solid rgba(251,191,36,0.28)'
+                    : '1px solid rgba(255,255,255,0.07)',
+                  borderRadius: '8px',
+                  padding: '10px',
+                  color: password && !isLoading ? '#fbbf24' : '#4a4e63',
+                  cursor: password && !isLoading ? 'pointer' : 'default',
+                  transition: 'all 0.2s',
+                }}
               >
                 {isLoading ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    <span>验证中...</span>
-                  </>
+                  <span className="flex items-center justify-center gap-2">
+                    <span
+                      className="inline-block w-3.5 h-3.5 rounded-full border-2 animate-spin"
+                      style={{ borderColor: 'rgba(251,191,36,0.3)', borderTopColor: '#fbbf24' }}
+                    />
+                    验证中
+                  </span>
                 ) : (
-                  <>
-                    <LogIn className="w-5 h-5" />
-                    <span>登录</span>
-                  </>
+                  '进入'
                 )}
               </button>
             </form>
-
-            {/* 返回链接 */}
-            <div className="mt-6 pt-6 border-t border-gray-700/50">
-              <a
-                href="/"
-                className="flex items-center justify-center gap-2 text-sm text-gray-400 hover:text-gray-300 transition-colors group"
-              >
-                <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-                <span>返回普通模式</span>
-              </a>
-            </div>
           </div>
         </div>
 
-        {/* 底部提示 */}
-        <div className="mt-4 text-center">
-          <p className="text-xs sm:text-sm text-gray-500">
-            管理员权限仅在本次会话有效
-          </p>
+        {/* 返回 */}
+        <div className="mt-5 flex justify-center">
+          <a
+            href="/"
+            className="flex items-center gap-1.5 text-xs transition-opacity hover:opacity-100 opacity-40"
+            style={{ color: '#8b8fa8' }}
+          >
+            <ArrowLeft className="w-3 h-3" />
+            <span>返回</span>
+          </a>
         </div>
       </div>
+
+      <style>{`
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          18%       { transform: translateX(-6px); }
+          36%       { transform: translateX(5px); }
+          54%       { transform: translateX(-4px); }
+          72%       { transform: translateX(3px); }
+          90%       { transform: translateX(-2px); }
+        }
+      `}</style>
     </div>
   )
 }
