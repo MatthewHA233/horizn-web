@@ -321,6 +321,57 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
     }
   }, [isPlaying, timeline.length])
 
+  // 按周分组：每周以周一 8:00 为界（必须在 early return 之前，保证 hooks 顺序一致）
+  const weekBoundaries = useMemo(() => {
+    if (timeline.length === 0) return []
+    const year = parseInt(yearMonth.slice(0, 4))
+
+    const weeks = []
+    let currentWeekStart = null
+    let weekNum = 0
+
+    for (let i = 0; i < timeline.length; i++) {
+      const ts = timeline[i].timestamp // "MM-DD 周X HH:MM"
+      const parts = ts.split(' ')
+      const datePart = parts[0]
+      const timePart = parts[2] || parts[1]
+
+      const [mm, dd] = datePart.split('-').map(Number)
+      const [hh, mi] = (timePart || '00:00').split(':').map(Number)
+      const frameDate = new Date(year, mm - 1, dd, hh, mi)
+      const weekStart = getWeekStart(frameDate)
+      const weekStartKey = weekStart.getTime()
+
+      if (currentWeekStart !== weekStartKey) {
+        currentWeekStart = weekStartKey
+        weekNum++
+        weeks.push({ weekNum, firstFrame: i, lastFrame: i, weekStart })
+      } else {
+        weeks[weeks.length - 1].lastFrame = i
+      }
+    }
+    return weeks
+  }, [timeline, yearMonth])
+
+  // 当前帧所在的周
+  const currentWeekIndex = useMemo(() => {
+    for (let i = weekBoundaries.length - 1; i >= 0; i--) {
+      if (currentFrame >= weekBoundaries[i].firstFrame) return i
+    }
+    return 0
+  }, [currentFrame, weekBoundaries])
+
+  const currentWeek = weekBoundaries[currentWeekIndex] || null
+  const totalWeeks = weekBoundaries.length
+
+  // 跳转到指定周的最后一帧
+  const jumpToWeek = (weekIdx) => {
+    const week = weekBoundaries[weekIdx]
+    if (!week) return
+    setCurrentFrame(week.lastFrame)
+    setIsPlaying(false)
+  }
+
   if (loading) {
     return <BarChartSkeleton showNav={false} />
   }
@@ -381,58 +432,6 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
   }
 
   const maxValue = displayData.length > 0 ? Math.max(...displayData.map(d => d.value)) : 1
-
-  // 按周分组：每周以周一 8:00 为界
-  const weekBoundaries = useMemo(() => {
-    if (timeline.length === 0) return []
-    const year = parseInt(yearMonth.slice(0, 4))
-    const month = parseInt(yearMonth.slice(2, 4)) // 用于从 "MM-DD" 还原完整日期
-
-    const weeks = [] // [{ weekNum, firstFrame, lastFrame, label }]
-    let currentWeekStart = null
-    let weekNum = 0
-
-    for (let i = 0; i < timeline.length; i++) {
-      const ts = timeline[i].timestamp // "MM-DD 周X HH:MM"
-      const parts = ts.split(' ')
-      const datePart = parts[0] // "MM-DD"
-      const timePart = parts[2] || parts[1] // "HH:MM"
-
-      const [mm, dd] = datePart.split('-').map(Number)
-      const [hh, mi] = (timePart || '00:00').split(':').map(Number)
-      const frameDate = new Date(year, mm - 1, dd, hh, mi)
-      const weekStart = getWeekStart(frameDate)
-      const weekStartKey = weekStart.getTime()
-
-      if (currentWeekStart !== weekStartKey) {
-        currentWeekStart = weekStartKey
-        weekNum++
-        weeks.push({ weekNum, firstFrame: i, lastFrame: i, weekStart })
-      } else {
-        weeks[weeks.length - 1].lastFrame = i
-      }
-    }
-    return weeks
-  }, [timeline, yearMonth])
-
-  // 当前帧所在的周
-  const currentWeekIndex = useMemo(() => {
-    for (let i = weekBoundaries.length - 1; i >= 0; i--) {
-      if (currentFrame >= weekBoundaries[i].firstFrame) return i
-    }
-    return 0
-  }, [currentFrame, weekBoundaries])
-
-  const currentWeek = weekBoundaries[currentWeekIndex] || null
-  const totalWeeks = weekBoundaries.length
-
-  // 跳转到指定周的最后一帧
-  const jumpToWeek = (weekIdx) => {
-    const week = weekBoundaries[weekIdx]
-    if (!week) return
-    setCurrentFrame(week.lastFrame)
-    setIsPlaying(false)
-  }
 
   // 检测是否是大幅度跳跃（如从末尾回到开头）
   const prevFrame = prevFrameRef.current
