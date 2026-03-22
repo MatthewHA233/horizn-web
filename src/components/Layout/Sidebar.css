@@ -39,3 +39,34 @@
     scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
   }
 }
+
+/* RPG 浮动伤害数字效果 —— 左下→右上，Y 匀速上升，X 减速停止 */
+@keyframes dmgMoveX {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(28px); }
+}
+@keyframes dmgMoveY {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  15%  { opacity: 1; transform: translateY(-4px) scale(1.1); }
+  70%  { opacity: 0.9; transform: translateY(-24px) scale(1); }
+  100% { opacity: 0; transform: translateY(-34px) scale(0.85); }
+}
+
+/* 外层：水平向右减速 */
+.floating-dmg-x {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  animation: dmgMoveX 1.6s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+}
+/* 内层：垂直向上匀速 + 淡出 */
+.floating-dmg-y {
+  display: inline-block;
+  color: #fde047;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+  text-shadow: 0 0 5px rgba(253, 224, 71, 0.6), 0 1px 3px rgba(0, 0, 0, 0.7);
+  animation: dmgMoveY 1.6s linear forwards;
+}

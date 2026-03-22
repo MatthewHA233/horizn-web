@@ -35,6 +35,11 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
   const prevFpsRef = useRef(30) // 追踪上一次的速度
   const prevFrameRef = useRef(currentFrame) // 追踪上一帧
   const weekStopFrameRef = useRef(null) // 周活跃模式下的停止帧
+  const prevPinnedValueRef = useRef(null) // 追踪铆钉玩家上一帧活跃度
+  const [floatingNumbers, setFloatingNumbers] = useState([]) // 浮动数字动画
+  const floatingIdRef = useRef(0) // 浮动数字唯一 ID
+  const floatingSlotRef = useRef(0) // 循环位置槽 0-5，从左到右
+  const pinnedBarRef = useRef(null) // 铆钉玩家条形图 DOM 引用
 
   // 同步 fps 到 ref
   useEffect(() => {
@@ -377,6 +382,34 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
     return player.value
   }, [currentFrame, timeline, highlightPlayerId])
 
+  // 铆钉玩家活跃度变化时生成浮动数字（RPG 伤害数字效果）
+  useEffect(() => {
+    if (pinnedPlayerValue == null) {
+      prevPinnedValueRef.current = null
+      return
+    }
+    const prev = prevPinnedValueRef.current
+    prevPinnedValueRef.current = pinnedPlayerValue
+    if (prev == null) return
+
+    const delta = pinnedPlayerValue - prev
+    if (delta <= 0) return
+
+    const id = ++floatingIdRef.current
+    // 从左到右循环 6 个槽位，紧凑排列
+    const slot = floatingSlotRef.current
+    floatingSlotRef.current = (slot + 1) % 6
+
+    setFloatingNumbers(nums => {
+      const trimmed = nums.length >= 8 ? nums.slice(-7) : nums
+      return [...trimmed, { id, value: delta, slot }]
+    })
+    // 动画 1.6s 后移除
+    setTimeout(() => {
+      setFloatingNumbers(nums => nums.filter(n => n.id !== id))
+    }, 1600)
+  }, [pinnedPlayerValue])
+
   // 跳转到指定周的最后一帧
   const jumpToWeek = (weekIdx) => {
     const week = weekBoundaries[weekIdx]
@@ -551,7 +584,10 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
                       </div>
 
                       {/* 条形图 */}
-                      <div className="flex-1 relative h-3 sm:h-4 min-w-0">
+                      <div
+                        className="flex-1 relative h-3 sm:h-4 min-w-0"
+                        ref={isHighlighted ? pinnedBarRef : undefined}
+                      >
                         <motion.div
                           initial={{ width: 0 }}
                           animate={{ width: `${percentage}%` }}
@@ -577,6 +613,31 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
                 })}
               </AnimatePresence>
             </div>
+
+            {/* 浮动数字独立图层 —— 用 ref 定位到铆钉玩家条形图区域内 */}
+            {highlightPlayerId && floatingNumbers.length > 0 && pinnedBarRef.current && (() => {
+              const bar = pinnedBarRef.current
+              const container = bar.closest('.custom-scrollbar')
+              if (!container) return null
+              const barRect = bar.getBoundingClientRect()
+              const containerRect = container.getBoundingClientRect()
+              const topPx = barRect.top - containerRect.top + container.scrollTop
+              const leftPx = barRect.left - containerRect.left
+              const barW = barRect.width
+              return floatingNumbers.map(fn => {
+                // 6 个槽位均匀分布在条形图宽度的 10%~70% 范围内
+                const xOffset = leftPx + barW * (0.1 + fn.slot * 0.1)
+                return (
+                  <span
+                    key={fn.id}
+                    className="floating-dmg-x"
+                    style={{ top: topPx, left: xOffset }}
+                  >
+                    <span className="floating-dmg-y">+{fn.value}</span>
+                  </span>
+                )
+              })
+            })()}
 
             {/* 小屏幕：时间和总计（浮动在右下角） */}
             <div className={`lg:hidden absolute bottom-0 text-right pointer-events-auto ${
