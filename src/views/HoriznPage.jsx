@@ -258,7 +258,11 @@ export default function HoriznPage({ yearMonth, serverData }) {
         if (serverData) {
           // 服务端已预取数据，直接构建 base（无网络请求）
           base = buildMonthlyBaseFromServerData(serverData)
-          console.log(`⚡ 使用服务端预取数据 | ${serverData.dayCount}天 | 服务端耗时: ${serverData.fetchTime}ms`)
+          console.log(
+            `⚡ 使用服务端预取数据 | ${serverData.dayCount}天` +
+            (serverData.duckDBFrames ? ` + DuckDB增量${serverData.duckDBFrames}帧` : '') +
+            ` | 服务端耗时: ${serverData.fetchTime}ms`
+          )
         } else {
           // 客户端 fallback（切换月份等场景）
           base = await getHoriznMonthlyBaseSmart(yearMonth)
