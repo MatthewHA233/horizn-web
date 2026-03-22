@@ -164,36 +164,59 @@ export default function HoriznAdminLogin() {
                 )}
               </div>
 
-              <button
-                type="submit"
-                disabled={isLoading || !password}
-                className="w-full mt-4 text-sm font-medium transition-opacity disabled:opacity-30"
+              {/* Aceternity shimmer button */}
+              <div
+                className="mt-4"
                 style={{
+                  padding: '1px',
+                  borderRadius: '9px',
                   background: password && !isLoading
-                    ? 'linear-gradient(135deg, rgba(251,191,36,0.18) 0%, rgba(251,191,36,0.10) 100%)'
-                    : 'rgba(255,255,255,0.04)',
-                  border: password && !isLoading
-                    ? '1px solid rgba(251,191,36,0.28)'
-                    : '1px solid rgba(255,255,255,0.07)',
-                  borderRadius: '8px',
-                  padding: '10px',
-                  color: password && !isLoading ? '#fbbf24' : '#4a4e63',
-                  cursor: password && !isLoading ? 'pointer' : 'default',
-                  transition: 'all 0.2s',
+                    ? 'linear-gradient(135deg, rgba(251,191,36,0.55) 0%, rgba(251,191,36,0.08) 50%, rgba(251,191,36,0.4) 100%)'
+                    : 'rgba(255,255,255,0.07)',
+                  transition: 'background 0.3s',
+                  opacity: !password ? 0.35 : 1,
                 }}
               >
-                {isLoading ? (
-                  <span className="flex items-center justify-center gap-2">
+                <button
+                  type="submit"
+                  disabled={isLoading || !password}
+                  className="relative w-full overflow-hidden text-sm font-medium"
+                  style={{
+                    background: '#0c0e15',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    cursor: password && !isLoading ? 'pointer' : 'default',
+                    color: password && !isLoading ? '#fde68a' : '#4a4e63',
+                    transition: 'color 0.3s',
+                    letterSpacing: '0.04em',
+                  }}
+                >
+                  {/* 扫光层 */}
+                  {password && !isLoading && (
                     <span
-                      className="inline-block w-3.5 h-3.5 rounded-full border-2 animate-spin"
-                      style={{ borderColor: 'rgba(251,191,36,0.3)', borderTopColor: '#fbbf24' }}
+                      className="absolute inset-0 pointer-events-none"
+                      style={{
+                        background: 'linear-gradient(110deg, transparent 25%, rgba(251,191,36,0.13) 50%, transparent 75%)',
+                        backgroundSize: '200% 100%',
+                        animation: 'btnShimmer 2.2s infinite linear',
+                      }}
                     />
-                    验证中
+                  )}
+                  <span className="relative z-10 flex items-center justify-center gap-2">
+                    {isLoading ? (
+                      <>
+                        <span
+                          className="inline-block w-3.5 h-3.5 rounded-full border-2 animate-spin"
+                          style={{ borderColor: 'rgba(251,191,36,0.25)', borderTopColor: '#fbbf24' }}
+                        />
+                        验证中
+                      </>
+                    ) : (
+                      '进入'
+                    )}
                   </span>
-                ) : (
-                  '进入'
-                )}
-              </button>
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -219,6 +242,10 @@ export default function HoriznAdminLogin() {
           54%       { transform: translateX(-4px); }
           72%       { transform: translateX(3px); }
           90%       { transform: translateX(-2px); }
+        }
+        @keyframes btnShimmer {
+          0%   { background-position: 200% center; }
+          100% { background-position: -200% center; }
         }
       `}</style>
     </div>
