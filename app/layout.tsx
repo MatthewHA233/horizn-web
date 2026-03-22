@@ -24,6 +24,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh">
+      <head>
+        <script defer src="https://umami.lingflow.cn/script.js" data-website-id="0bcf2e35-65ee-4baa-8a30-5d1c9faaba50"></script>
+      </head>
       <body>
         {children}
         <Analytics />
