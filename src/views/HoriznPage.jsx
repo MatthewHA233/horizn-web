@@ -499,7 +499,7 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
         }}
       />
       {/* 标签页导航 + 状态栏 */}
-      <div className="flex-shrink-0 border-b border-gray-800 overflow-hidden">
+      <div className="flex-shrink-0 border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between min-w-0">
             {/* 左侧：联队logo + 标签页 */}
