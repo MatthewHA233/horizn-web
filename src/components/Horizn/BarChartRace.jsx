@@ -601,17 +601,30 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
                             {item.value.toLocaleString()}
                           </div>
                         )}
-                        {/* 与铆钉玩家的差值（内嵌在条形图内） */}
-                        {pinnedPlayerValue != null && !isHighlighted && item.value !== pinnedPlayerValue && (
-                          <div className={`absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 text-[8px] sm:text-[10px] font-mono leading-none pointer-events-none ${
-                            item.value > pinnedPlayerValue ? 'text-green-300/80' : 'text-red-300/60'
-                          }`}>
-                            {item.value > pinnedPlayerValue
-                              ? `多${(item.value - pinnedPlayerValue).toLocaleString()}`
-                              : `少${(pinnedPlayerValue - item.value).toLocaleString()}`
-                            }
-                          </div>
-                        )}
+                        {/* 与铆钉玩家的差值：前面的人显示"多xxx"，仅后一名显示"少xxx" */}
+                        {pinnedPlayerValue != null && !isHighlighted && (() => {
+                          const diff = item.value - pinnedPlayerValue
+                          if (diff === 0) return null
+                          if (diff > 0) {
+                            return (
+                              <div className="absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 text-[8px] sm:text-[10px] font-mono text-green-300/80 leading-none pointer-events-none">
+                                多{diff.toLocaleString()}
+                              </div>
+                            )
+                          }
+                          // 只有紧跟铆钉玩家后一名才显示"少xxx"
+                          const allData = currentData.allData || currentData.data
+                          const pinnedIdx = allData.findIndex(d => d.playerId === highlightPlayerId)
+                          const myIdx = allData.findIndex(d => d.name === item.name)
+                          if (pinnedIdx !== -1 && myIdx === pinnedIdx + 1) {
+                            return (
+                              <div className="absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 text-[8px] sm:text-[10px] font-mono text-red-300/60 leading-none pointer-events-none">
+                                少{(-diff).toLocaleString()}
+                              </div>
+                            )
+                          }
+                          return null
+                        })()}
                       </div>
                     </motion.div>
                   )
