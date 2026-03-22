@@ -34,6 +34,7 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
   const fpsRef = useRef(30)
   const prevFpsRef = useRef(30) // 追踪上一次的速度
   const prevFrameRef = useRef(currentFrame) // 追踪上一帧
+  const weekStopFrameRef = useRef(null) // 周活跃模式下的停止帧
 
   // 同步 fps 到 ref
   useEffect(() => {
@@ -277,7 +278,8 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
       startTimeRef.current = performance.now()
       startFrameRef.current = currentFrame
       prevFpsRef.current = fpsRef.current
-      const totalFrames = timeline.length - 1
+      // 周活跃模式下使用当前周的最后一帧作为停止点
+      const stopFrame = weekStopFrameRef.current != null ? weekStopFrameRef.current : timeline.length - 1
       let lastFrame = currentFrame
 
       const animate = (currentTime) => {
@@ -292,11 +294,11 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
         const currentFps = fpsRef.current
         const targetFrame = Math.min(
           Math.floor(startFrameRef.current + (elapsed / 1000) * currentFps),
-          totalFrames
+          stopFrame
         )
 
-        if (targetFrame >= totalFrames) {
-          setCurrentFrame(totalFrames)
+        if (targetFrame >= stopFrame) {
+          setCurrentFrame(stopFrame)
           setIsPlaying(false)
           return
         }
@@ -364,12 +366,26 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
   const currentWeek = weekBoundaries[currentWeekIndex] || null
   const totalWeeks = weekBoundaries.length
 
+  // 铆钉玩家的活跃度值（必须在 early return 之前，保证 hooks 顺序一致）
+  const pinnedPlayerValue = useMemo(() => {
+    if (!highlightPlayerId || timeline.length === 0 || currentFrame === null) return null
+    const frame = timeline[currentFrame] || timeline[timeline.length - 1]
+    if (!frame) return null
+    const allData = frame.allData || frame.data
+    const player = allData.find(item => item.playerId === highlightPlayerId)
+    if (!player || player.value === 0) return null
+    return player.value
+  }, [currentFrame, timeline, highlightPlayerId])
+
   // 跳转到指定周的最后一帧
   const jumpToWeek = (weekIdx) => {
     const week = weekBoundaries[weekIdx]
     if (!week) return
     setCurrentFrame(week.lastFrame)
     setIsPlaying(false)
+    if (dataType === 'weekly') {
+      weekStopFrameRef.current = week.lastFrame
+    }
   }
 
   if (loading) {
@@ -431,7 +447,7 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
     displayData = currentData.data.slice(0, maxVisibleItems)
   }
 
-  const maxValue = displayData.length > 0 ? Math.max(...displayData.map(d => d.value)) : 1
+  const maxValue = displayData.length > 0 ? Math.max(...displayData.map(d => d.value), 1) : 1
 
   // 检测是否是大幅度跳跃（如从末尾回到开头）
   const prevFrame = prevFrameRef.current
@@ -549,6 +565,12 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
                             {item.value.toLocaleString()}
                           </div>
                         )}
+                        {/* 比铆钉玩家高出多少（内嵌在条形图内） */}
+                        {pinnedPlayerValue != null && !isHighlighted && item.value > pinnedPlayerValue && (
+                          <div className="absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 text-[8px] sm:text-[10px] font-mono text-green-300/80 leading-none pointer-events-none">
+                            多{(item.value - pinnedPlayerValue).toLocaleString()}
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   )
@@ -645,11 +667,26 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
             {/* 播放/暂停 */}
             <button
               onClick={() => {
-                // 如果当前在结尾，重置到开头再播放
-                if (currentFrame >= timeline.length - 1) {
+                if (dataType === 'weekly' && currentWeek) {
+                  // 周活跃模式：在当前周内播放
+                  if (currentFrame >= currentWeek.lastFrame) {
+                    // 已到本周末尾，回到本周第一帧重新播放
+                    setCurrentFrame(currentWeek.firstFrame)
+                    weekStopFrameRef.current = currentWeek.lastFrame
+                    setIsPlaying(true)
+                  } else if (isPlaying) {
+                    setIsPlaying(false)
+                  } else {
+                    weekStopFrameRef.current = currentWeek.lastFrame
+                    setIsPlaying(true)
+                  }
+                } else if (currentFrame >= timeline.length - 1) {
+                  // 非周活跃模式：到结尾回到开头
+                  weekStopFrameRef.current = null
                   setCurrentFrame(0)
                   setIsPlaying(true)
                 } else {
+                  weekStopFrameRef.current = null
                   setIsPlaying(!isPlaying)
                 }
               }}

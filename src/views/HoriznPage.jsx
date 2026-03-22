@@ -18,10 +18,8 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   const router = useRouter()
 
   // 验证 yearMonth 格式（YYYYMM）
-  if (!yearMonth || !/^\d{6}$/.test(yearMonth)) {
-    router.replace('/')
-    return null
-  }
+  const isValidYearMonth = yearMonth && /^\d{6}$/.test(yearMonth)
+
   const [activeTab, setActiveTab] = useState('weekly')
   const [isAdmin, setIsAdmin] = useState(false) // 管理员权限状态
   const [isSuperAdmin, setIsSuperAdmin] = useState(false) // 超级管理员（舷号/黑名单权限）
@@ -64,6 +62,13 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
     season: null
   })
   const [monthlyBase, setMonthlyBase] = useState(null)
+
+  // yearMonth 无效时重定向（必须在 useEffect 中，避免 SSR 引用 location）
+  useEffect(() => {
+    if (!isValidYearMonth) {
+      router.replace('/')
+    }
+  }, [isValidYearMonth, router])
 
   // 响应式监听
   useEffect(() => {
@@ -473,6 +478,8 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   ], [yearMonth])
 
   const currentTab = tabs.find(tab => tab.id === activeTab)
+
+  if (!isValidYearMonth) return null
 
   return (
     <div
