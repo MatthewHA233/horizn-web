@@ -9,7 +9,7 @@ import BarChartSkeleton from '@/components/Horizn/BarChartSkeleton'
 export default function BarChartRace({ csvPath, onDataUpdate, showValues = false, externalFrameIndex = null, preloadedData = null, highlightPlayerId = null }) {
   // 根据 csvPath 判断类型（weekly 或 season）
   const dataType = csvPath.includes('weekly') ? 'weekly' : 'season'
-  const storageKey = `horizn_animation_duration_${dataType}`
+  const storageKey = `horizn_animation_fps_${dataType}`
 
   const [timeline, setTimeline] = useState([])
   const [currentFrame, setCurrentFrame] = useState(null) // null 表示未初始化
@@ -17,7 +17,7 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [colorMap, setColorMap] = useState({})
-  const [totalDuration, setTotalDuration] = useState(5) // 默认5秒，客户端挂载后从 localStorage 读取
+  const [fps, setFps] = useState(30) // 默认30帧/秒，客户端挂载后从 localStorage 读取
   const [maxVisibleItems, setMaxVisibleItems] = useState(20) // 最大可见条目数
   const [newMemberMap, setNewMemberMap] = useState({}) // 新成员映射：{ playerName: weeksAgo }
   const [activeTooltip, setActiveTooltip] = useState(null) // 当前显示的提示框（用于移动端点击）
@@ -31,14 +31,14 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
   const animationRef = useRef(null)
   const startTimeRef = useRef(null)
   const startFrameRef = useRef(0)
-  const totalDurationRef = useRef(totalDuration)
-  const prevDurationRef = useRef(totalDuration) // 追踪上一次的速度
+  const fpsRef = useRef(30)
+  const prevFpsRef = useRef(30) // 追踪上一次的速度
   const prevFrameRef = useRef(currentFrame) // 追踪上一帧
 
-  // 同步 totalDuration 到 ref
+  // 同步 fps 到 ref
   useEffect(() => {
-    totalDurationRef.current = totalDuration
-  }, [totalDuration])
+    fpsRef.current = fps
+  }, [fps])
 
   // 从 csvPath 提取 yearMonth
   const yearMonth = csvPath.match(/(\d{6})/)?.[1] || ''
@@ -175,20 +175,21 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
     loadData()
   }, [csvPath, yearMonth, dataType, preloadedData])
 
-  // 客户端挂载后从 localStorage 读取时长设置
+  // 客户端挂载后从 localStorage 读取 fps 设置
   useEffect(() => {
     if (typeof window === 'undefined') return
     const saved = localStorage.getItem(storageKey)
     if (saved) {
-      setTotalDuration(parseFloat(saved))
+      const val = parseFloat(saved)
+      if (val > 0) setFps(val)
     }
   }, [storageKey])
 
-  // 保存总时长到 localStorage（分类型保存）
+  // 保存 fps 到 localStorage（分类型保存）
   useEffect(() => {
     if (typeof window === 'undefined') return
-    localStorage.setItem(storageKey, totalDuration.toString())
-  }, [totalDuration, storageKey])
+    localStorage.setItem(storageKey, fps.toString())
+  }, [fps, storageKey])
 
   // 更新上一帧引用
   useEffect(() => {
@@ -270,40 +271,31 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
     return () => window.removeEventListener('resize', calculateMaxItems)
   }, [])
 
-  // 播放控制 - 使用 requestAnimationFrame 实现精确时间控制
+  // 播放控制 - 基于 fps（帧/秒）
   useEffect(() => {
     if (isPlaying && timeline.length > 0) {
-      // 记录开始时间和开始帧
       startTimeRef.current = performance.now()
       startFrameRef.current = currentFrame
-      prevDurationRef.current = totalDurationRef.current
-      const totalFrames = timeline.length - 1 // 最大帧索引
+      prevFpsRef.current = fpsRef.current
+      const totalFrames = timeline.length - 1
       let lastFrame = currentFrame
 
       const animate = (currentTime) => {
-        // 检测速度是否改变
-        if (totalDurationRef.current !== prevDurationRef.current) {
-          // 速度改变了，重置时间基准
+        // fps 变了，重置时间基准
+        if (fpsRef.current !== prevFpsRef.current) {
           startTimeRef.current = currentTime
           startFrameRef.current = lastFrame
-          prevDurationRef.current = totalDurationRef.current
+          prevFpsRef.current = fpsRef.current
         }
 
         const elapsed = currentTime - startTimeRef.current
-        const currentDuration = totalDurationRef.current
-        const remainingFrames = totalFrames - startFrameRef.current
-        const remainingDuration = (remainingFrames / totalFrames) * currentDuration
-
-        const progress = Math.min(elapsed / (remainingDuration * 1000), 1)
-
-        // 根据时间进度计算当前应该显示的帧
+        const currentFps = fpsRef.current
         const targetFrame = Math.min(
-          Math.floor(startFrameRef.current + progress * remainingFrames),
+          Math.floor(startFrameRef.current + (elapsed / 1000) * currentFps),
           totalFrames
         )
 
-        if (progress >= 1) {
-          // 播放完成，确保停在最后一帧
+        if (targetFrame >= totalFrames) {
           setCurrentFrame(totalFrames)
           setIsPlaying(false)
           return
@@ -1117,17 +1109,17 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
               </div>
             </div>
 
-            {/* 时长调节 */}
+            {/* 速度调节（帧/秒） */}
             <div className="flex items-center gap-0.5 sm:gap-1 lg:gap-2 flex-shrink-0">
               <button
-                onClick={() => setTotalDuration(Math.max(5, totalDuration - 5))}
+                onClick={() => setFps(Math.max(1, fps <= 5 ? fps - 1 : fps - 5))}
                 className="w-5 h-5 flex items-center justify-center hover:bg-gray-800 rounded transition-colors"
               >
                 <span className="text-gray-400 text-[10px] sm:text-xs">−</span>
               </button>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-mono w-6 sm:w-7 lg:w-8 text-center">{totalDuration}s</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-mono w-10 sm:w-12 lg:w-14 text-center">{fps}f/s</span>
               <button
-                onClick={() => setTotalDuration(totalDuration + 5)}
+                onClick={() => setFps(fps < 5 ? fps + 1 : fps + 5)}
                 className="w-5 h-5 flex items-center justify-center hover:bg-gray-800 rounded transition-colors"
               >
                 <span className="text-gray-400 text-[10px] sm:text-xs">+</span>
