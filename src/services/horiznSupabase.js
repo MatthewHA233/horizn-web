@@ -80,6 +80,8 @@ function buildSessionsFromDaily(dailyData, dateValue) {
   })
 }
 
+const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
 const formatTimestamp = (input) => {
   const date = new Date(input)
   if (Number.isNaN(date.getTime())) return input
@@ -87,7 +89,8 @@ const formatTimestamp = (input) => {
   const dd = String(date.getDate()).padStart(2, '0')
   const hh = String(date.getHours()).padStart(2, '0')
   const mi = String(date.getMinutes()).padStart(2, '0')
-  return `${mm}-${dd} ${hh}:${mi}`
+  const dayName = DAY_NAMES[date.getDay()]
+  return `${mm}-${dd} ${dayName} ${hh}:${mi}`
 }
 
 const parseDateStr = (val) => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { parseBarChartRaceCSV, generateColorMap } from '@/utils/csvParser'
 import { OSS_BASE_URL } from '@/utils/constants'
@@ -382,6 +382,58 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
 
   const maxValue = displayData.length > 0 ? Math.max(...displayData.map(d => d.value)) : 1
 
+  // 按周分组：每周以周一 8:00 为界
+  const weekBoundaries = useMemo(() => {
+    if (timeline.length === 0) return []
+    const year = parseInt(yearMonth.slice(0, 4))
+    const month = parseInt(yearMonth.slice(2, 4)) // 用于从 "MM-DD" 还原完整日期
+
+    const weeks = [] // [{ weekNum, firstFrame, lastFrame, label }]
+    let currentWeekStart = null
+    let weekNum = 0
+
+    for (let i = 0; i < timeline.length; i++) {
+      const ts = timeline[i].timestamp // "MM-DD 周X HH:MM"
+      const parts = ts.split(' ')
+      const datePart = parts[0] // "MM-DD"
+      const timePart = parts[2] || parts[1] // "HH:MM"
+
+      const [mm, dd] = datePart.split('-').map(Number)
+      const [hh, mi] = (timePart || '00:00').split(':').map(Number)
+      const frameDate = new Date(year, mm - 1, dd, hh, mi)
+      const weekStart = getWeekStart(frameDate)
+      const weekStartKey = weekStart.getTime()
+
+      if (currentWeekStart !== weekStartKey) {
+        currentWeekStart = weekStartKey
+        weekNum++
+        weeks.push({ weekNum, firstFrame: i, lastFrame: i, weekStart })
+      } else {
+        weeks[weeks.length - 1].lastFrame = i
+      }
+    }
+    return weeks
+  }, [timeline, yearMonth])
+
+  // 当前帧所在的周
+  const currentWeekIndex = useMemo(() => {
+    for (let i = weekBoundaries.length - 1; i >= 0; i--) {
+      if (currentFrame >= weekBoundaries[i].firstFrame) return i
+    }
+    return 0
+  }, [currentFrame, weekBoundaries])
+
+  const currentWeek = weekBoundaries[currentWeekIndex] || null
+  const totalWeeks = weekBoundaries.length
+
+  // 跳转到指定周的最后一帧
+  const jumpToWeek = (weekIdx) => {
+    const week = weekBoundaries[weekIdx]
+    if (!week) return
+    setCurrentFrame(week.lastFrame)
+    setIsPlaying(false)
+  }
+
   // 检测是否是大幅度跳跃（如从末尾回到开头）
   const prevFrame = prevFrameRef.current
   const frameDiff = Math.abs(currentFrame - prevFrame)
@@ -506,14 +558,36 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
             </div>
 
             {/* 小屏幕：时间和总计（浮动在右下角） */}
-            <div className={`lg:hidden absolute bottom-0 text-right pointer-events-none ${
+            <div className={`lg:hidden absolute bottom-0 text-right pointer-events-auto ${
               showValues ? 'right-8 sm:right-16 md:right-20' : 'right-4 sm:right-8 md:right-12'
             }`}>
+              {/* 第几周（可左右切换） */}
+              {currentWeek && totalWeeks > 1 && (
+                <div className="flex items-center justify-end gap-1 mb-0.5">
+                  <button
+                    onClick={() => jumpToWeek(currentWeekIndex - 1)}
+                    className={`w-4 h-4 flex items-center justify-center rounded ${currentWeekIndex > 0 ? 'text-gray-400 hover:text-white hover:bg-gray-700' : 'text-gray-700 cursor-default'}`}
+                    disabled={currentWeekIndex <= 0}
+                  >
+                    <span className="text-[10px]">◀</span>
+                  </button>
+                  <span className="text-[10px] sm:text-xs text-purple-400/80 font-medium">
+                    第{currentWeek.weekNum}周
+                  </span>
+                  <button
+                    onClick={() => jumpToWeek(currentWeekIndex + 1)}
+                    className={`w-4 h-4 flex items-center justify-center rounded ${currentWeekIndex < totalWeeks - 1 ? 'text-gray-400 hover:text-white hover:bg-gray-700' : 'text-gray-700 cursor-default'}`}
+                    disabled={currentWeekIndex >= totalWeeks - 1}
+                  >
+                    <span className="text-[10px]">▶</span>
+                  </button>
+                </div>
+              )}
               <div className="text-sm sm:text-base md:text-lg text-gray-400/80 font-mono leading-none">
-                {currentData.timestamp.split(' ')[0] || ''}
+                {currentData.timestamp.split(' ')[0] || ''} {currentData.timestamp.split(' ')[1] || ''}
               </div>
               <div className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-300/80 font-mono leading-none mt-1">
-                {currentData.timestamp.split(' ')[1] || currentData.timestamp}
+                {currentData.timestamp.split(' ')[2] || currentData.timestamp.split(' ')[1] || currentData.timestamp}
               </div>
               {/* 总计（仅管理员可见） */}
               {showValues && (
@@ -527,11 +601,33 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
           {/* 大屏幕：右侧时间和总计 */}
           <div className="hidden lg:flex w-64 xl:w-96 flex-col justify-center items-center flex-shrink-0">
             <div className="text-center">
+              {/* 第几周 */}
+              {currentWeek && totalWeeks > 1 && (
+                <div className="flex items-center justify-center gap-2 mb-3">
+                  <button
+                    onClick={() => jumpToWeek(currentWeekIndex - 1)}
+                    className={`w-6 h-6 flex items-center justify-center rounded ${currentWeekIndex > 0 ? 'text-gray-400 hover:text-white hover:bg-gray-700' : 'text-gray-700 cursor-default'}`}
+                    disabled={currentWeekIndex <= 0}
+                  >
+                    <span className="text-xs">◀</span>
+                  </button>
+                  <span className="text-sm xl:text-base text-purple-400 font-medium">
+                    第{currentWeek.weekNum}周
+                  </span>
+                  <button
+                    onClick={() => jumpToWeek(currentWeekIndex + 1)}
+                    className={`w-6 h-6 flex items-center justify-center rounded ${currentWeekIndex < totalWeeks - 1 ? 'text-gray-400 hover:text-white hover:bg-gray-700' : 'text-gray-700 cursor-default'}`}
+                    disabled={currentWeekIndex >= totalWeeks - 1}
+                  >
+                    <span className="text-xs">▶</span>
+                  </button>
+                </div>
+              )}
               <div className="text-xl xl:text-2xl text-gray-400 mb-2 font-mono leading-none">
-                {currentData.timestamp.split(' ')[0] || ''}
+                {currentData.timestamp.split(' ')[0] || ''} {currentData.timestamp.split(' ')[1] || ''}
               </div>
               <div className="text-6xl xl:text-8xl font-bold text-gray-300 mb-3 xl:mb-4 font-mono leading-none">
-                {currentData.timestamp.split(' ')[1] || currentData.timestamp}
+                {currentData.timestamp.split(' ')[2] || currentData.timestamp.split(' ')[1] || currentData.timestamp}
               </div>
               {/* 总计（仅管理员可见） */}
               {showValues && (
@@ -891,7 +987,7 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
                               style={{ left: `${percentage}%` }}
                             >
                               <div className="text-[9px] sm:text-[10px] text-gray-400 font-mono whitespace-nowrap">
-                                {timeline[frameIndex]?.timestamp.split(' ')[1] || ''}
+                                {timeline[frameIndex]?.timestamp.split(' ')[2] || timeline[frameIndex]?.timestamp.split(' ')[1] || ''}
                               </div>
                             </div>
                           )

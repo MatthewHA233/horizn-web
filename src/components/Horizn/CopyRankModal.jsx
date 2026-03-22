@@ -97,11 +97,11 @@ export default function CopyRankModal({
     return targetData.timeline[validIndex] || null
   }, [copyDataType, activeTab, currentData, preloadedData, manualFrameIndex])
 
-  // 格式化时间戳
+  // 格式化时间戳（兼容 "MM-DD HH:MM" 和 "MM-DD 周X HH:MM"）
   const formatTimestamp = (timestamp) => {
     const now = new Date()
     const year = now.getFullYear()
-    const match = timestamp.match(/(\d{2})-(\d{2}) (\d{2}:\d{2})/)
+    const match = timestamp.match(/(\d{2})-(\d{2})\s+(?:周.?\s+)?(\d{2}:\d{2})/)
     if (match) {
       const [, month, day, time] = match
       return `${year}年${parseInt(month)}月${parseInt(day)}日${time}`
@@ -111,7 +111,7 @@ export default function CopyRankModal({
 
   // 格式化时间戳用于警告显示
   const formatTimestampShort = (timestamp) => {
-    const match = timestamp.match(/(\d{2})-(\d{2}) (\d{2}:\d{2})/)
+    const match = timestamp.match(/(\d{2})-(\d{2})\s+(?:周.?\s+)?(\d{2}:\d{2})/)
     if (match) {
       const [, month, day, time] = match
       return `非最新数据: ${parseInt(month)}月${parseInt(day)}日 ${time}`
@@ -478,7 +478,7 @@ export default function CopyRankModal({
                         ←
                       </button>
                       <div className="flex-1 h-7 px-2 bg-gray-700/50 text-white text-center text-xs font-semibold rounded-md border border-gray-600 flex items-center justify-center truncate select-none">
-                        {currentData?.current?.timestamp?.split(' ')[1] || '--:--'}
+                        {currentData?.current?.timestamp?.split(' ').pop() || '--:--'}
                       </div>
                       <button
                         onPointerDown={(e) => {
@@ -603,7 +603,7 @@ export default function CopyRankModal({
                         ←
                       </button>
                       <div className="flex-1 min-w-0 h-7 px-1 bg-gray-700/50 text-white text-center text-xs font-semibold rounded-md border border-gray-600 flex items-center justify-center truncate select-none">
-                        {currentData?.current?.timestamp?.split(' ')[1] || '--:--'}
+                        {currentData?.current?.timestamp?.split(' ').pop() || '--:--'}
                       </div>
                       <button
                         onPointerDown={(e) => {
