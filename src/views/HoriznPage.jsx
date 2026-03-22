@@ -11,7 +11,7 @@ import KickReviewModal from '@/components/Horizn/KickReviewModal'
 import MemberEventsModal from '@/components/Horizn/MemberEventsModal'
 import MemberAdminModal from '@/components/Horizn/MemberAdminModal'
 import { CDN_BASE_URL } from '@/utils/constants'
-import { getHoriznAvailableMonths, buildHoriznTimelineFromBase, buildMonthlyBase, fetchDuckDBIncrement, fetchOSSSessions, cacheMonthSessions, getCachedMonthSessions } from '@/services/horiznSupabase'
+import { getHoriznAvailableMonths, buildHoriznTimelineFromBase, buildMonthlyBase, fetchDuckDBIncrement, fetchOSSSessions, cacheMonthData, getCachedMonthData } from '@/services/horiznSupabase'
 import '@/components/Layout/Sidebar.css'
 
 export default function HoriznPage({ yearMonth, serverIdMapping }) {
@@ -245,8 +245,8 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
       }
 
       const mergedSessions = [...sessions, ...newSessions]
-      applySessionsToUI(mergedSessions, monthlyBase.idMapping)
-      cacheMonthSessions(yearMonth, mergedSessions)
+      const base = applyToUI(mergedSessions, monthlyBase.idMapping)
+      saveCache(yearMonth, mergedSessions, monthlyBase.idMapping, base.colorMap)
 
       toast.success(`已更新 ${newSessions.length} 帧数据`, { duration: 2000 })
       console.log(`🔄 刷新完成: +${newSessions.length}帧, 总计${mergedSessions.length}帧`)
@@ -283,10 +283,10 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
     fetchMonths()
   }, [showMonthMenu, availableMonths.length])
 
-  // 用 sessions 构建 base 并设置到状态
-  const applySessionsToUI = (sessions, idMapping) => {
+  // 用 sessions + idMapping 构建 base 并渲染到 UI
+  const applyToUI = (sessions, idMapping, cachedColorMap) => {
     const t0 = performance.now()
-    const base = buildMonthlyBase(yearMonth, sessions, idMapping)
+    const base = buildMonthlyBase(yearMonth, sessions, idMapping, cachedColorMap)
     const weeklyTimeline = buildHoriznTimelineFromBase(base, 'weekly_activity')
     const weekly = { timeline: weeklyTimeline, colorMap: base.colorMap, idMapping: base.idMapping }
     setMonthlyBase(base)
@@ -304,45 +304,74 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
     return last
   }
 
-  // 加载数据：本地缓存 → OSS → 自动 DuckDB 增量
+  // 写入缓存（从当前 base 中提取 idMapping + colorMap 一并存入）
+  const saveCache = (ym, sessions, idMapping, colorMap) => {
+    cacheMonthData(ym, { sessions, idMapping, colorMap })
+  }
+
+  // ============================================================
+  // 数据加载：本地有什么先上什么，后台静默刷新
+  // 1. IndexedDB 缓存 → 立刻渲染（秒开）
+  // 2. 后台并行：serverIdMapping 合并 + DuckDB 增量
+  // 3. 无缓存时 → OSS 拉取 → 再增量
+  // ============================================================
   useEffect(() => {
-    const idMapping = serverIdMapping || {}
     let cancelled = false
 
     const loadData = async () => {
       try {
-        setPreloadedData({ weekly: null, season: null })
-        setMonthlyBase(null)
-
-        // 1. 尝试读取本地缓存
-        const cached = await getCachedMonthSessions(yearMonth)
+        // 1. 立刻读本地缓存，有就先渲染
+        const cached = await getCachedMonthData(yearMonth)
         let sessions = null
+        let idMapping = null
+        let colorMap = null
 
         if (cached?.sessions?.length) {
           sessions = cached.sessions
-          applySessionsToUI(sessions, idMapping)
-          console.log(`💾 本地缓存命中: ${yearMonth} | ${sessions.length}帧 | 缓存于${Math.round((Date.now() - cached.cachedAt) / 1000)}s前`)
+          idMapping = cached.idMapping || {}
+          colorMap = cached.colorMap || null
+          // 先用本地缓存的 idMapping + colorMap 渲染（秒开）
+          applyToUI(sessions, idMapping, colorMap)
+          console.log(`💾 本地缓存命中: ${yearMonth} | ${sessions.length}帧 ${Object.keys(idMapping).length}人 | ${Math.round((Date.now() - cached.cachedAt) / 1000)}s前`)
         }
 
-        // 2. 无缓存 → 从 OSS 拉取（客户端→国内OSS）
+        // 2. 如果服务端带来了新的 idMapping，静默刷新（名字/入离队可能有变）
+        const freshIdMapping = serverIdMapping || {}
+        const hasNewIdMapping = Object.keys(freshIdMapping).length > 0
+        if (hasNewIdMapping && sessions) {
+          // 服务端 idMapping 比本地缓存更新，重新渲染
+          idMapping = freshIdMapping
+          const base = applyToUI(sessions, idMapping)
+          colorMap = base.colorMap
+          saveCache(yearMonth, sessions, idMapping, colorMap)
+          if (cancelled) return
+        }
+
+        // 使用最佳可用 idMapping（优先服务端，其次本地缓存）
+        if (!idMapping || Object.keys(idMapping).length === 0) {
+          idMapping = hasNewIdMapping ? freshIdMapping : {}
+        }
+
+        // 3. 无缓存 → 从 OSS 拉取（客户端→国内OSS）
         if (!sessions) {
           console.log(`📦 首次加载 ${yearMonth}，从 OSS 获取...`)
           sessions = await fetchOSSSessions(yearMonth)
           if (cancelled) return
-          applySessionsToUI(sessions, idMapping)
-          // 写入缓存
-          cacheMonthSessions(yearMonth, sessions)
+          const base = applyToUI(sessions, idMapping)
+          colorMap = base.colorMap
+          saveCache(yearMonth, sessions, idMapping, colorMap)
         }
 
-        // 3. 自动 DuckDB 增量刷新
+        // 4. 自动 DuckDB 增量刷新
         const lastTs = getLastTimestamp(sessions)
         if (lastTs) {
           const newSessions = await fetchDuckDBIncrement(lastTs, yearMonth)
           if (cancelled) return
           if (newSessions.length > 0) {
             sessions = [...sessions, ...newSessions]
-            applySessionsToUI(sessions, idMapping)
-            cacheMonthSessions(yearMonth, sessions)
+            const base = applyToUI(sessions, idMapping)
+            colorMap = base.colorMap
+            saveCache(yearMonth, sessions, idMapping, colorMap)
             console.log(`🔄 自动增量: +${newSessions.length}帧`)
           }
         }

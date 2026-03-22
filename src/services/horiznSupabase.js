@@ -227,28 +227,31 @@ function openDB() {
 }
 
 /**
- * 保存月度 sessions 到客户端缓存
+ * 保存月度数据到客户端缓存（sessions + idMapping + colorMap）
+ * 所有数据一起缓存，打开页面时本地先全部渲染出来
  */
-export async function cacheMonthSessions(yearMonth, sessions) {
+export async function cacheMonthData(yearMonth, { sessions, idMapping, colorMap }) {
   try {
     const db = await openDB()
     const tx = db.transaction(STORE_NAME, 'readwrite')
     tx.objectStore(STORE_NAME).put({
       sessions,
+      idMapping,
+      colorMap,
       cachedAt: Date.now(),
     }, yearMonth)
     await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej })
-    console.log(`💾 已缓存 ${yearMonth}: ${sessions.length}帧`)
+    console.log(`💾 已缓存 ${yearMonth}: ${sessions.length}帧, ${Object.keys(idMapping || {}).length}人`)
   } catch (e) {
     console.warn('💾 缓存写入失败:', e.message)
   }
 }
 
 /**
- * 从客户端缓存读取月度 sessions
- * @returns {{ sessions, cachedAt } | null}
+ * 从客户端缓存读取月度数据
+ * @returns {{ sessions, idMapping, colorMap, cachedAt } | null}
  */
-export async function getCachedMonthSessions(yearMonth) {
+export async function getCachedMonthData(yearMonth) {
   try {
     const db = await openDB()
     const tx = db.transaction(STORE_NAME, 'readonly')
@@ -309,13 +312,13 @@ export async function fetchOSSSessions(yearMonth) {
 
 /**
  * 用 sessions + idMapping 构建 monthlyBase
+ * cachedColorMap 可选：有则直接复用（本地缓存场景），无则重新生成
  */
-export function buildMonthlyBase(yearMonth, sessions, idMapping) {
+export function buildMonthlyBase(yearMonth, sessions, idMapping, cachedColorMap) {
   const allNames = new Set()
   Object.values(idMapping || {}).forEach(info => {
     if (info?.name) allNames.add(info.name)
   })
-  // 也从 sessions 中收集（可能有 idMapping 里没有的人）
   sessions.forEach(s => {
     s.entries.forEach(e => {
       const info = idMapping?.[e.player_id]
@@ -326,11 +329,17 @@ export function buildMonthlyBase(yearMonth, sessions, idMapping) {
   const start = parseDateStr(`${yearMonth}01`) || new Date()
   const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59)
 
+  // 有缓存 colorMap 且人数没变化时直接复用，否则重新生成
+  const namesArr = Array.from(allNames).filter(Boolean)
+  const colorMap = cachedColorMap && Object.keys(cachedColorMap).length >= namesArr.length
+    ? cachedColorMap
+    : generateColorMap(namesArr)
+
   return {
     yearMonth,
     sessions,
     idMapping: idMapping || {},
-    colorMap: generateColorMap(Array.from(allNames).filter(Boolean)),
+    colorMap,
     monthStart: start,
     monthEnd: end,
   }
