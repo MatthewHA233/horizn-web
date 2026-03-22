@@ -400,11 +400,11 @@ export default function BarChartRace({ csvPath, onDataUpdate, showValues = false
 
   return (
     <div className="flex flex-col h-full" onClick={() => setActiveTooltip(null)}>
-      <div className="flex-1 min-h-0 max-w-7xl mx-auto w-full px-4 sm:px-6 pt-3 sm:pt-4 lg:pt-6">
+      <div className="flex-1 min-h-0 overflow-hidden max-w-7xl mx-auto w-full px-4 sm:px-6 pt-2 sm:pt-3 lg:pt-4">
         {/* 图表区域 */}
-        <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 h-full">
+        <div className="flex flex-col lg:flex-row gap-2 lg:gap-8 h-full min-h-0">
           {/* 条形图区域 - 可滚动 */}
-          <div className="flex-1 relative overflow-y-auto min-h-0 custom-scrollbar">
+          <div className="flex-1 relative overflow-y-auto min-h-0 custom-scrollbar pb-1">
             <div className="space-y-1">
               <AnimatePresence mode="popLayout">
                 {displayData.map((item, index) => {

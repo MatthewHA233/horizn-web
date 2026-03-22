@@ -475,7 +475,14 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   const currentTab = tabs.find(tab => tab.id === activeTab)
 
   return (
-    <div className="flex flex-col bg-gradient-to-b from-gray-900 to-black overflow-hidden" style={{ height: '100dvh' }}>
+    <div
+      className="flex flex-col bg-gradient-to-b from-gray-900 to-black overflow-hidden"
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+        height: '100dvh',
+      }}
+    >
       {/* Toast 通知 */}
       <Toaster
         position="top-center"
@@ -492,11 +499,11 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
         }}
       />
       {/* 标签页导航 + 状态栏 */}
-      <div className="flex-shrink-0 border-b border-gray-800">
+      <div className="flex-shrink-0 border-b border-gray-800 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between min-w-0">
             {/* 左侧：联队logo + 标签页 */}
-            <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3 md:gap-4 min-w-0 flex-shrink-1">
               {/* 联队logo */}
               <img
                 src={`${CDN_BASE_URL}/horizn.png`}
@@ -592,7 +599,7 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
             </div>
 
             {/* 右侧：刷新 + 月份选择器 + 管理员标识 */}
-            <div className="flex items-center gap-2 sm:gap-3 md:gap-4 text-[10px] sm:text-xs text-gray-400 pr-1 sm:pr-2">
+            <div className="flex items-center gap-1 sm:gap-3 md:gap-4 text-[10px] sm:text-xs text-gray-400 pr-1 sm:pr-2 flex-shrink-0">
               {/* 刷新按钮 */}
               <button
                 onClick={handleRefresh}

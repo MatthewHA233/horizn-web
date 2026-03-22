@@ -2,8 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  /* 全面屏安全区顶部（刘海/挖孔/灵动岛） */
-  padding-top: env(safe-area-inset-top);
+html, body {
   background-color: #030712; /* gray-950，防止白屏 */
+  overflow: hidden; /* 防止 webview 双重滚动 */
 }
