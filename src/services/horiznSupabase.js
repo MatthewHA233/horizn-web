@@ -226,22 +226,25 @@ export function buildMonthlyBaseFromServerData(serverData) {
 
 /**
  * 客户端从 DuckDB 获取增量 sessions（lastTimestamp 之后的数据）
- * 用于刷新按钮：不重新加载 OSS，只拉 DuckDB 新数据
+ * 通过 /api/horizn/duckdb-increment 代理，避免 Mixed Content
  */
 export async function fetchDuckDBIncrement(lastTimestamp, yearMonth) {
-  if (!DUCKDB_URL || !lastTimestamp) return []
-
-  const sql = `
-    SELECT player_id, session_time, weekly_activity, season_activity
-    FROM horizn_activity_records
-    WHERE session_time > ?::timestamp
-      AND strftime(session_time, '%Y%m') = ?
-    ORDER BY session_time, player_id
-  `
+  if (!lastTimestamp) return []
 
   try {
     const t0 = performance.now()
-    const data = await queryDuckDB(sql, [lastTimestamp, yearMonth])
+    const res = await fetch('/api/horizn/duckdb-increment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lastTimestamp, yearMonth }),
+    })
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || `API ${res.status}`)
+    }
+
+    const data = await res.json()
     const rows = data.rows || []
 
     if (rows.length === 0) {
