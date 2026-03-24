@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Lock, ArrowLeft } from 'lucide-react'
-import { CDN_BASE_URL } from '@/utils/constants'
 
 export default function HoriznAdminLogin() {
   const [password, setPassword] = useState('')
@@ -93,7 +92,7 @@ export default function HoriznAdminLogin() {
             {/* Logo */}
             <div className="flex flex-col items-center mb-10">
               <img
-                src={`${CDN_BASE_URL}/horizn.png`}
+                src="/horizn.png"
                 alt="HORIZN"
                 className="h-14 w-14 rounded-full object-cover mb-4"
                 style={{

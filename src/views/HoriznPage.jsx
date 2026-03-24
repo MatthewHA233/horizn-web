@@ -10,7 +10,6 @@ import CheckListModal from '@/components/Horizn/CheckListModal'
 import KickReviewModal from '@/components/Horizn/KickReviewModal'
 import MemberEventsModal from '@/components/Horizn/MemberEventsModal'
 import MemberAdminModal from '@/components/Horizn/MemberAdminModal'
-import { CDN_BASE_URL } from '@/utils/constants'
 import { getHoriznAvailableMonths, buildHoriznTimelineFromBase, buildMonthlyBase, fetchDuckDBIncrement, fetchOSSSessions, cacheMonthData, getCachedMonthData } from '@/services/horiznSupabase'
 import '@/components/Layout/Sidebar.css'
 
@@ -513,7 +512,7 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
             <div className="flex items-center gap-2 sm:gap-3 md:gap-4 min-w-0 flex-shrink-1">
               {/* 联队logo */}
               <img
-                src={`${CDN_BASE_URL}/horizn.png`}
+                src="/horizn.png"
                 alt="HORIZN"
                 className="h-6 w-6 sm:h-8 sm:w-8 md:h-10 md:w-10 rounded-full object-cover flex-shrink-0"
               />
