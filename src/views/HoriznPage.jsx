@@ -54,6 +54,8 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   const searchInputRef = useRef(null)
   const searchContainerRef = useRef(null)
   const mobileSearchInputRef = useRef(null)
+  const serverIdMappingRef = useRef(serverIdMapping)
+  serverIdMappingRef.current = serverIdMapping
 
   // 预加载的数据缓存
   const [preloadedData, setPreloadedData] = useState({
@@ -337,75 +339,82 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   // ============================================================
   useEffect(() => {
     let cancelled = false
+    let loadingToastId = null
 
     const loadData = async () => {
       try {
-        // 1. 立刻读本地缓存
+        const CACHE_EXPIRY_MS = 10 * 24 * 60 * 60 * 1000 // 10天
+
+        // 1. 读本地缓存，判断是否有效
         const cached = await getCachedMonthData(yearMonth)
+        if (cancelled) return  // StrictMode 二次挂载时，run 1 在此退出，不创建 toast
+
+        const cacheValid = !!(cached?.sessions?.length && (Date.now() - (cached.cachedAt || 0)) < CACHE_EXPIRY_MS)
+        const freshIdMapping = serverIdMappingRef.current || {}
+        const hasNewIdMapping = Object.keys(freshIdMapping).length > 0
+
         let sessions = null
-        let idMapping = null
+        let idMapping = hasNewIdMapping ? freshIdMapping : {}
 
-        if (cached?.sessions?.length) {
+        if (cacheValid) {
+          // 2a. 有效缓存 → 立即渲染
           sessions = cached.sessions
-          idMapping = cached.idMapping || {}
-
-          // 有预计算的 timeline → 直接 setState（跳过 buildTimeline）
+          idMapping = hasNewIdMapping ? freshIdMapping : (cached.idMapping || {})
           if (cached.weeklyTimeline?.length) {
             fastRender(cached)
           } else {
-            // 老格式缓存，没有 timeline，需要计算一次
             fullBuildAndRender(sessions, idMapping, cached.colorMap)
           }
-          console.log(`💾 本地缓存命中: ${yearMonth} | ${sessions.length}帧 ${Object.keys(idMapping).length}人 | ${Math.round((Date.now() - cached.cachedAt) / 1000)}s前`)
+          console.log(`💾 本地缓存命中: ${yearMonth} | ${sessions.length}帧 | ${Math.round((Date.now() - cached.cachedAt) / 1000)}s前`)
+        } else {
+          // 2b. 无缓存或过期 → 从 OSS 全量拉取
+          if (cached?.sessions?.length) {
+            console.log(`⚠️ 缓存过期 (${Math.round((Date.now() - cached.cachedAt) / 86400000)}天)，重新加载`)
+          } else {
+            console.log(`📦 首次加载 ${yearMonth}，从 OSS 获取...`)
+          }
+          sessions = await fetchOSSSessions(yearMonth)
+          if (cancelled) return
+          fullBuildAndRender(sessions, idMapping)
         }
 
-        // 2. 有缓存 → 并行发起 idMapping 刷新 + DuckDB 增量
-        const freshIdMapping = serverIdMapping || {}
-        const hasNewIdMapping = Object.keys(freshIdMapping).length > 0
+        // 3. DuckDB 增量（统一入口，带 toast）
+        const lastTs = getLastTimestamp(sessions)
+        if (!lastTs) return
 
-        if (sessions) {
-          // 用最佳 idMapping
-          if (hasNewIdMapping) idMapping = freshIdMapping
-
-          // DuckDB 增量和 idMapping 刷新结果一起应用
-          const lastTs = getLastTimestamp(sessions)
-          const incrementPromise = lastTs
-            ? fetchDuckDBIncrement(lastTs, yearMonth).catch(() => [])
-            : Promise.resolve([])
-
-          const newSessions = await incrementPromise
-          if (cancelled) return
-
-          // 只要有任何变化（新 idMapping 或新增量），就重新构建一次
-          const hasIncrement = newSessions.length > 0
-          if (hasNewIdMapping || hasIncrement) {
-            if (hasIncrement) {
-              sessions = [...sessions, ...newSessions]
-              console.log(`🔄 自动增量: +${newSessions.length}帧`)
-            }
-            fullBuildAndRender(sessions, idMapping)
-          }
+        loadingToastId = toast.loading('加载新数据中...')
+        const newSessions = await fetchDuckDBIncrement(lastTs, yearMonth).catch(() => [])
+        if (cancelled) {
+          toast.dismiss(loadingToastId)
+          loadingToastId = null
           return
         }
 
-        // 3. 无缓存 → 从 OSS 拉取（客户端→国内 OSS）
-        idMapping = hasNewIdMapping ? freshIdMapping : {}
-        console.log(`📦 首次加载 ${yearMonth}，从 OSS 获取...`)
-        sessions = await fetchOSSSessions(yearMonth)
-        if (cancelled) return
-        fullBuildAndRender(sessions, idMapping)
-
-        // 4. OSS 拉完后自动增量
-        const lastTs = getLastTimestamp(sessions)
-        if (lastTs) {
-          const newSessions = await fetchDuckDBIncrement(lastTs, yearMonth)
-          if (cancelled) return
-          if (newSessions.length > 0) {
-            sessions = [...sessions, ...newSessions]
-            fullBuildAndRender(sessions, idMapping)
-            console.log(`🔄 自动增量: +${newSessions.length}帧`)
+        if (newSessions.length > 0) {
+          const successToastId = loadingToastId
+          loadingToastId = null
+          toast.success(`已更新 ${newSessions.length} 帧`, { id: successToastId, duration: Infinity })
+          sessions = [...sessions, ...newSessions]
+          console.log(`🔄 自动增量: +${newSessions.length}帧`)
+          // 稍等让 toast 先渲染，再开始重计算；重计算完成后 1 秒消失
+          setTimeout(() => {
+            if (!cancelled) {
+              fullBuildAndRender(sessions, idMapping)
+              setTimeout(() => toast.dismiss(successToastId), 1000)
+            } else {
+              toast.dismiss(successToastId)
+            }
+          }, 100)
+        } else {
+          toast('暂无新数据', { id: loadingToastId, icon: '📭', duration: 2000 })
+          loadingToastId = null
+          if (cacheValid && hasNewIdMapping) {
+            setTimeout(() => {
+              if (!cancelled) fullBuildAndRender(sessions, idMapping)
+            }, 100)
           }
         }
+        loadingToastId = null
       } catch (error) {
         console.error('[HoriznPage] 数据加载失败:', error)
         if (!cancelled) {
@@ -420,8 +429,14 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
     }
 
     loadData()
-    return () => { cancelled = true }
-  }, [yearMonth, serverIdMapping])
+    return () => {
+      cancelled = true
+      if (loadingToastId) {
+        toast.dismiss(loadingToastId)
+        loadingToastId = null
+      }
+    }
+  }, [yearMonth])
 
   // 空闲时预计算赛季时间线，避免切换标签时卡顿（不阻塞首屏）
   useEffect(() => {
