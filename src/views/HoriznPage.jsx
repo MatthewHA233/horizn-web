@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ShieldCheck, Calendar, Search, X, Pin, RefreshCw } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
@@ -27,6 +27,20 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   const [availableMonths, setAvailableMonths] = useState([])
   const [showCopyModal, setShowCopyModal] = useState(false)
   const [currentData, setCurrentData] = useState(null)
+  const handleDataUpdate = useCallback((data) => {
+    setCurrentData(data)
+    if (pendingIncrementToastRef.current) {
+      const { id, frameCount, minShowUntil } = pendingIncrementToastRef.current
+      pendingIncrementToastRef.current = null
+      const delay = Math.max(0, minShowUntil - Date.now())
+      setTimeout(() => {
+        toast.success(`已更新 ${frameCount} 帧`, { id, duration: Infinity })
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          setTimeout(() => toast.dismiss(id), 2000)
+        }))
+      }, delay)
+    }
+  }, [])
   const [manualFrameIndex, setManualFrameIndex] = useState(null) // 手动控制的帧索引（用于时间调整）
   const [isMobile, setIsMobile] = useState(false)
 
@@ -821,21 +835,7 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
         <BarChartRace
           key={currentTab.csvPath}
           csvPath={currentTab.csvPath}
-          onDataUpdate={(data) => {
-              setCurrentData(data)
-              // BarChartRace 处理完新帧时，触发"已更新 xx 帧"toast
-              if (pendingIncrementToastRef.current) {
-                const { id, frameCount, minShowUntil } = pendingIncrementToastRef.current
-                pendingIncrementToastRef.current = null
-                const delay = Math.max(0, minShowUntil - Date.now())
-                setTimeout(() => {
-                  toast.success(`已更新 ${frameCount} 帧`, { id, duration: Infinity })
-                  requestAnimationFrame(() => requestAnimationFrame(() => {
-                    setTimeout(() => toast.dismiss(id), 2000)
-                  }))
-                }, delay)
-              }
-            }}
+          onDataUpdate={handleDataUpdate}
           showValues={isAdmin}
           externalFrameIndex={manualFrameIndex}
           preloadedData={preloadedData[activeTab]}
