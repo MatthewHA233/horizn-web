@@ -21,7 +21,7 @@ export default function HoriznAdminLogin() {
   }, [])
 
   useEffect(() => {
-    const isAuthenticated = sessionStorage.getItem('horizn_admin_auth') === 'true'
+    const isAuthenticated = localStorage.getItem('horizn_admin_auth') === 'true'
     if (isAuthenticated) router.push('/')
   }, [router])
 
@@ -38,13 +38,13 @@ export default function HoriznAdminLogin() {
     setTimeout(() => {
       if (SUPER_PASSWORD && password === SUPER_PASSWORD) {
         // 超级管理员：可访问舷号与黑名单
-        sessionStorage.setItem('horizn_admin_auth', 'true')
-        sessionStorage.setItem('horizn_super_auth', 'true')
+        localStorage.setItem('horizn_admin_auth', 'true')
+        localStorage.setItem('horizn_super_auth', 'true')
         router.push('/')
       } else if (password === ADMIN_PASSWORD) {
         // 普通管理员
-        sessionStorage.setItem('horizn_admin_auth', 'true')
-        sessionStorage.removeItem('horizn_super_auth')
+        localStorage.setItem('horizn_admin_auth', 'true')
+        localStorage.removeItem('horizn_super_auth')
         router.push('/')
       } else {
         setError('密码错误')

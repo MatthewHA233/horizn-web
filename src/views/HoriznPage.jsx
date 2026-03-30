@@ -98,8 +98,8 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
 
   // 检查是否有管理员权限（客户端初始化）
   useEffect(() => {
-    setIsAdmin(sessionStorage.getItem('horizn_admin_auth') === 'true')
-    setIsSuperAdmin(sessionStorage.getItem('horizn_super_auth') === 'true')
+    setIsAdmin(localStorage.getItem('horizn_admin_auth') === 'true')
+    setIsSuperAdmin(localStorage.getItem('horizn_super_auth') === 'true')
   }, [])
 
   // 从 localStorage 读取上次定位的玩家
@@ -192,8 +192,8 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
 
   // 退出管理员
   const handleLogout = () => {
-    sessionStorage.removeItem('horizn_admin_auth')
-    sessionStorage.removeItem('horizn_super_auth')
+    localStorage.removeItem('horizn_admin_auth')
+    localStorage.removeItem('horizn_super_auth')
     setIsAdmin(false)
     setIsSuperAdmin(false)
     setShowAdminMenu(false)
