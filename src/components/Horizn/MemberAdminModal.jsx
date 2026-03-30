@@ -422,19 +422,27 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
     })
   }
 
-  // 确认删除舷号
-  const handleConfirmHullDelete = async () => {
+  // 确认删除舷号（keepHistory=true 则标为旧舷号，false 则完全删除）
+  const handleConfirmHullDelete = async (keepHistory) => {
     if (!confirmingHullDelete) return
-    const { playerId } = confirmingHullDelete
-    const result = await setHullNumber(playerId, null)
+    const { playerId, hullNumber } = confirmingHullDelete
+    const newValue = keepHistory ? `[旧]${hullNumber}` : null
+    const result = await setHullNumber(playerId, newValue)
     if (result.success) {
-      toast.success('舷号已删除', { duration: 1500 })
-      setMembers(prev => prev.map(m =>
-        m.player_id === playerId ? { ...m, hull_number: null, hull_date: null } : m
-      ))
-      setSelectedSeat(null)
+      if (keepHistory) {
+        toast.success(`已标记为 [旧]${hullNumber}`, { duration: 1500 })
+        setMembers(prev => prev.map(m =>
+          m.player_id === playerId ? { ...m, hull_number: newValue } : m
+        ))
+      } else {
+        toast.success('舷号已删除', { duration: 1500 })
+        setMembers(prev => prev.map(m =>
+          m.player_id === playerId ? { ...m, hull_number: null, hull_date: null } : m
+        ))
+        setSelectedSeat(null)
+      }
     } else {
-      toast.error(`删除失败: ${result.error}`)
+      toast.error(`操作失败: ${result.error}`)
     }
     setConfirmingHullDelete(null)
   }
@@ -1794,21 +1802,31 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
             >
               <h3 className="text-sm font-medium text-white mb-2">删除舷号</h3>
               <p className="text-xs text-gray-400 mb-3">
-                确认删除 <span className="text-white font-medium">{confirmingHullDelete.memberName}</span> 的舷号{' '}
-                <span className="text-red-400 font-bold font-mono">{confirmingHullDelete.hullNumber}</span>？
+                删除 <span className="text-white font-medium">{confirmingHullDelete.memberName}</span> 的舷号{' '}
+                <span className="text-red-400 font-bold font-mono">{confirmingHullDelete.hullNumber}</span>，请选择处理方式：
               </p>
-              <div className="flex justify-end gap-2">
+              <div className="space-y-2 mb-3">
+                <button
+                  onClick={() => handleConfirmHullDelete(true)}
+                  className="w-full px-3 py-2 text-xs text-left bg-gray-700 hover:bg-gray-600 text-white rounded border border-gray-500 transition-colors"
+                >
+                  <div className="font-medium text-amber-400 mb-0.5">保留历史记录</div>
+                  <div className="text-gray-400">标记为 [旧]{confirmingHullDelete.hullNumber}，保留在成员档案中</div>
+                </button>
+                <button
+                  onClick={() => handleConfirmHullDelete(false)}
+                  className="w-full px-3 py-2 text-xs text-left bg-gray-700 hover:bg-gray-600 text-white rounded border border-gray-500 transition-colors"
+                >
+                  <div className="font-medium text-red-400 mb-0.5">删除历史记录</div>
+                  <div className="text-gray-400">完全移除舷号，不留记录</div>
+                </button>
+              </div>
+              <div className="flex justify-end">
                 <button
                   onClick={() => setConfirmingHullDelete(null)}
                   className="px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
                 >
                   取消
-                </button>
-                <button
-                  onClick={handleConfirmHullDelete}
-                  className="px-3 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-500 transition-colors"
-                >
-                  确认删除
                 </button>
               </div>
             </div>
