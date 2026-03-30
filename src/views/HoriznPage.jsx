@@ -56,6 +56,7 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   const mobileSearchInputRef = useRef(null)
   const serverIdMappingRef = useRef(serverIdMapping)
   serverIdMappingRef.current = serverIdMapping
+  const pendingIncrementToastRef = useRef(null) // { id, frameCount }
 
   // 预加载的数据缓存
   const [preloadedData, setPreloadedData] = useState({
@@ -391,20 +392,24 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
         }
 
         if (newSessions.length > 0) {
-          const successToastId = loadingToastId
+          const renderToastId = loadingToastId
           loadingToastId = null
-          toast.success(`已更新 ${newSessions.length} 帧`, { id: successToastId, duration: Infinity })
+          const frameCount = newSessions.length
           sessions = [...sessions, ...newSessions]
-          console.log(`🔄 自动增量: +${newSessions.length}帧`)
-          // 稍等让 toast 先渲染，再开始重计算；重计算完成后 1 秒消失
+          console.log(`🔄 自动增量: +${frameCount}帧`)
+          // 进入下一个 task 再执行阻塞计算，计算完切"渲染新数据中..."
+          // "已更新 xx 帧" 等 BarChartRace 真正处理完新帧后由 onDataUpdate 触发
           setTimeout(() => {
-            if (!cancelled) {
-              fullBuildAndRender(sessions, idMapping)
-              setTimeout(() => toast.dismiss(successToastId), 1000)
-            } else {
-              toast.dismiss(successToastId)
+            if (cancelled) { toast.dismiss(renderToastId); return }
+            fullBuildAndRender(sessions, idMapping)
+            // fullBuildAndRender 完成（setState 已入队），切换 toast 提示渲染中
+            toast.loading('渲染新数据中...', { id: renderToastId })
+            pendingIncrementToastRef.current = {
+              id: renderToastId,
+              frameCount,
+              minShowUntil: Date.now() + 600  // "渲染新数据中..." 至少显示 600ms
             }
-          }, 100)
+          }, 0)
         } else {
           toast('暂无新数据', { id: loadingToastId, icon: '📭', duration: 2000 })
           loadingToastId = null
@@ -816,7 +821,21 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
         <BarChartRace
           key={currentTab.csvPath}
           csvPath={currentTab.csvPath}
-          onDataUpdate={setCurrentData}
+          onDataUpdate={(data) => {
+              setCurrentData(data)
+              // BarChartRace 处理完新帧时，触发"已更新 xx 帧"toast
+              if (pendingIncrementToastRef.current) {
+                const { id, frameCount, minShowUntil } = pendingIncrementToastRef.current
+                pendingIncrementToastRef.current = null
+                const delay = Math.max(0, minShowUntil - Date.now())
+                setTimeout(() => {
+                  toast.success(`已更新 ${frameCount} 帧`, { id, duration: Infinity })
+                  requestAnimationFrame(() => requestAnimationFrame(() => {
+                    setTimeout(() => toast.dismiss(id), 2000)
+                  }))
+                }, delay)
+              }
+            }}
           showValues={isAdmin}
           externalFrameIndex={manualFrameIndex}
           preloadedData={preloadedData[activeTab]}
