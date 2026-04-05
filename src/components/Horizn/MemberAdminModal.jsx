@@ -1,13 +1,16 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import toast from 'react-hot-toast'
 import * as XLSX from 'xlsx'
 import {
   getAllMembersForAdmin,
-  setHullNumber,
-  setHullDate,
+  getHullOccupancy,
+  assignHullNumber,
+  revokeHullNumber,
+  hardDeleteHullAssignment,
+  transferHullNumber,
+  updateHullAssignment,
   setMemberBlacklist,
   setMemberBlacklistDate,
-  transferHullNumber,
   subscribeToMemberChanges,
   getBlacklistElse,
   addBlacklistElse,
@@ -52,6 +55,7 @@ const HULL_SECTIONS = [
     label: '联队管理层',
     sub: 'COMMAND · No.000 – No.010',
     range: [0, 10],
+    firstRowEnd: 0,
     accent: 'amber',
     bgOccupied: 'bg-amber-500/25 border-amber-500/60 text-amber-300',
     bgEmpty: 'bg-amber-950/20 border-amber-900/30 text-amber-700/60',
@@ -97,18 +101,16 @@ const HULL_SECTIONS = [
   },
 ]
 
-/** 计算某个分区中有占位的行（从分区起点开始，每10个一行） */
-function getSectionRows(start, end, occupancyMap) {
+/** 计算某个分区中有占位的行（每10个一行，firstRowEnd 可让第一行提前截断） */
+function getSectionRows(start, end, firstRowEnd) {
   const rows = []
-  for (let r = start; r <= end; r += 10) {
-    const cellStart = r
-    const cellEnd = Math.min(r + 9, end)
-    let hasOccupied = false
-    for (let i = cellStart; i <= cellEnd; i++) {
-      if (occupancyMap.has(i)) { hasOccupied = true; break }
-    }
-    if (!hasOccupied) continue
-    rows.push({ rowNum: r, cellStart, cellEnd })
+  let r = start
+  if (firstRowEnd !== undefined) {
+    rows.push({ rowNum: r, cellStart: r, cellEnd: firstRowEnd })
+    r = firstRowEnd + 1
+  }
+  for (; r <= end; r += 10) {
+    rows.push({ rowNum: r, cellStart: r, cellEnd: Math.min(r + 9, end) })
   }
   return rows
 }
@@ -118,7 +120,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('hull') // 'hull' | 'blacklist'
   const [hullView, setHullView] = useState('grid') // 'list' | 'grid'
-  const [hullSort, setHullSort] = useState('date') // 'date' | 'number'
+  const [hullSort, setHullSort] = useState('date') // 'date' | 'number' | 'qq_join'
+  const [hullAssignments, setHullAssignments] = useState([])
 
   // 添加行：搜索
   const [addSearchQuery, setAddSearchQuery] = useState('')
@@ -147,10 +150,10 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
 
   // 舷号确认弹窗
   const [confirmingHullAdd, setConfirmingHullAdd] = useState(null) // { playerId, hullNumber, memberName }
-  const [confirmingHullDelete, setConfirmingHullDelete] = useState(null) // { playerId, hullNumber, memberName }
+  const [confirmingHullDelete, setConfirmingHullDelete] = useState(null) // { playerId, hullNumber, memberName, assignmentId }
 
-  // 授予日期编辑
-  const [editingHullDate, setEditingHullDate] = useState(null) // { playerId, value }
+  // 授舷日期编辑
+  const [editingHullDate, setEditingHullDate] = useState(null) // { assignmentId, field, value }
   const hullDateInputRef = useRef(null)
 
   // 更迭舷号
@@ -174,8 +177,12 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
   const loadMembers = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await getAllMembersForAdmin()
-      setMembers(data)
+      const [membersData, assignmentsData] = await Promise.all([
+        getAllMembersForAdmin(),
+        getHullOccupancy()
+      ])
+      setMembers(membersData)
+      setHullAssignments(assignmentsData)
     } catch (err) {
       console.error('[MemberAdminModal] Load failed:', err)
       toast.error('加载成员数据失败')
@@ -214,8 +221,6 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
         m.player_id === payload.new.player_id
           ? {
               ...m,
-              hull_number: payload.new.hull_number,
-              hull_date: payload.new.hull_date,
               is_blacklisted: payload.new.is_blacklisted ?? false,
               blacklist_date: payload.new.blacklist_date,
               blacklist_note: payload.new.blacklist_note
@@ -245,64 +250,49 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
   }, [])
 
   // ========== 数据 ==========
-  const hullMembers = useMemo(() => {
-    return members
-      .filter(m => m.hull_number)
-      .sort((a, b) => {
-        // __pending__ 始终排最前（正在输入舷号的新增项）
-        if (a.hull_number === '__pending__') return -1
-        if (b.hull_number === '__pending__') return 1
-        if (hullSort === 'number') {
-          const aNum = parseInt(a.hull_number.replace(/\D/g, ''), 10) || 0
-          const bNum = parseInt(b.hull_number.replace(/\D/g, ''), 10) || 0
-          return aNum - bNum
-        }
-        // date: 入群时间降序
-        const aDate = a.qq_join_time ? new Date(a.qq_join_time).getTime() : 0
-        const bDate = b.qq_join_time ? new Date(b.qq_join_time).getTime() : 0
-        if (!aDate && !bDate) return 0
-        if (!aDate) return 1
-        if (!bDate) return -1
-        return bDate - aDate
-      })
-  }, [members, hullSort])
 
-  // 舷号占位 Map：number -> { current: member|null, legacy: member[] }
+  // 仅待分配的 pending 成员
+  const hullMembers = useMemo(() => {
+    return members.filter(m => m.hull_number === '__pending__')
+  }, [members])
+
+  // 授舷事件列表（含历史），用于列表视图
+  const hullEventList = useMemo(() => {
+    return [...hullAssignments].sort((a, b) => {
+      if (hullSort === 'number') {
+        const aNum = parseInt(a.hull_number.replace('No.', ''), 10) || 0
+        const bNum = parseInt(b.hull_number.replace('No.', ''), 10) || 0
+        if (aNum !== bNum) return aNum - bNum
+        if ((a.revoked_at === null) !== (b.revoked_at === null)) return a.revoked_at === null ? -1 : 1
+        return new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime()
+      }
+      if (hullSort === 'qq_join') {
+        const aT = a.qq_join_time ? new Date(a.qq_join_time).getTime() : 0
+        const bT = b.qq_join_time ? new Date(b.qq_join_time).getTime() : 0
+        if (bT !== aT) return bT - aT
+        return new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime()
+      }
+      // 'date': 按授舷时间倒序
+      return new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime()
+    })
+  }, [hullAssignments, hullSort])
+
+  // 舷号占位 Map：number -> { current: HullAssignment|null, legacy: HullAssignment[] }
   const hullOccupancyMap = useMemo(() => {
     const map = new Map()
-    for (const m of members) {
-      if (!m.hull_number || m.hull_number === '__pending__') continue
-      const isLegacy = m.hull_number.startsWith('[旧]')
-      const num = parseInt(m.hull_number.replace(/\D/g, ''), 10)
+    for (const a of hullAssignments) {
+      const num = parseInt(a.hull_number.replace('No.', ''), 10)
       if (Number.isNaN(num)) continue
       const entry = map.get(num) || { current: null, legacy: [] }
-      if (isLegacy) {
-        entry.legacy.push(m)
+      if (a.revoked_at === null) {
+        entry.current = a
       } else {
-        entry.current = m
+        entry.legacy.push(a)
       }
       map.set(num, entry)
     }
     return map
-  }, [members])
-
-  // 月份分组颜色（列表视图用）
-  const hullMonthColorMap = useMemo(() => {
-    const map = new Map()
-    let currentMonth = null
-    let colorIndex = 0
-    for (const m of hullMembers) {
-      const monthKey = m.qq_join_time
-        ? new Date(m.qq_join_time).getFullYear() + '-' + String(new Date(m.qq_join_time).getMonth() + 1).padStart(2, '0')
-        : '__none__'
-      if (monthKey !== currentMonth) {
-        if (currentMonth !== null) colorIndex++
-        currentMonth = monthKey
-      }
-      map.set(m.player_id, colorIndex % 2)
-    }
-    return map
-  }, [hullMembers])
+  }, [hullAssignments])
 
   const blacklistMembers = useMemo(() => {
     return members
@@ -322,7 +312,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
     const q = addSearchQuery.trim().toLowerCase()
     const existingIds = new Set(
       activeTab === 'hull'
-        ? hullMembers.map(m => m.player_id)
+        ? hullAssignments.filter(a => a.revoked_at === null).map(a => a.player_id)
         : blacklistMembers.map(m => m.player_id)
     )
     const results = []
@@ -350,9 +340,10 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
   const seatSearchSuggestions = useMemo(() => {
     if (!seatSearchQuery.trim()) return []
     const q = seatSearchQuery.trim().toLowerCase()
+    const activePlayerIds = new Set(hullAssignments.filter(a => a.revoked_at === null).map(a => a.player_id))
     const results = []
     for (const m of members) {
-      if (m.hull_number && m.hull_number !== '__pending__') continue
+      if (activePlayerIds.has(m.player_id)) continue
       const name = (m.primary_name || '').toLowerCase()
       const pid = (m.player_id || '').toLowerCase()
       const allNames = (Array.isArray(m.all_names) ? m.all_names.join(' ') : (m.all_names || '')).toLowerCase()
@@ -366,6 +357,15 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
 
   // ========== 舷号操作 ==========
 
+  const cancelPendingHull = (playerId) => {
+    setMembers(prev => prev.map(m =>
+      m.player_id === playerId && m.hull_number === '__pending__'
+        ? { ...m, hull_number: null }
+        : m
+    ))
+    setEditingHull(null)
+  }
+
   // 列表视图：输入舷号后弹确认
   const handleSaveHull = (playerId, rawValue) => {
     const trimmed = rawValue.trim()
@@ -376,7 +376,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
     setEditingHull(null)
   }
 
-  // 列表视图：搜索添加 → 进入编辑模式
+  // 列表视图：搜索添加 → 进入 pending 编辑模式
   const handleAddHullMember = (playerId) => {
     setAddSearchQuery('')
     setShowAddDropdown(false)
@@ -395,83 +395,67 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
     setConfirmingHullAdd({ playerId, hullNumber, memberName: m?.primary_name || playerId })
   }
 
-  // 确认添加舷号
+  // 确认分配舷号
   const handleConfirmHullAdd = async () => {
     if (!confirmingHullAdd) return
     const { playerId, hullNumber } = confirmingHullAdd
-    const result = await setHullNumber(playerId, hullNumber)
+    const result = await assignHullNumber(playerId, hullNumber)
     if (result.success) {
       toast.success(`舷号已设为 ${hullNumber}`, { duration: 1500 })
-      setMembers(prev => prev.map(m =>
-        m.player_id === playerId ? { ...m, hull_number: hullNumber, hull_date: new Date().toISOString() } : m
-      ))
+      cancelPendingHull(playerId)
       setSelectedSeat(null)
+      const assignments = await getHullOccupancy()
+      setHullAssignments(assignments)
     } else {
       toast.error(`保存失败: ${result.error}`)
     }
     setConfirmingHullAdd(null)
   }
 
-  // 请求删除舷号 → 弹确认
-  const handleRequestDeleteHull = (playerId) => {
-    const m = members.find(mm => mm.player_id === playerId)
-    setConfirmingHullDelete({
-      playerId,
-      hullNumber: m?.hull_number || '',
-      memberName: m?.primary_name || playerId
-    })
+  // 列表/座位图：点删除 → 弹确认（含 assignmentId）
+  const handleRequestDeleteHull = (playerId, assignmentId, hullNumber, memberName) => {
+    setConfirmingHullDelete({ playerId, hullNumber, memberName, assignmentId, notes: '' })
   }
 
-  // 确认删除舷号（keepHistory=true 则标为旧舷号，false 则完全删除）
+  // 确认删除：keepHistory=true → 软收回，false → 彻底删除
   const handleConfirmHullDelete = async (keepHistory) => {
     if (!confirmingHullDelete) return
-    const { playerId, hullNumber } = confirmingHullDelete
-    const newValue = keepHistory ? `[旧]${hullNumber}` : null
-    const result = await setHullNumber(playerId, newValue)
+    const { playerId, hullNumber, assignmentId, notes } = confirmingHullDelete
+    let result
+    if (keepHistory) {
+      result = await revokeHullNumber(playerId, hullNumber, notes || undefined)
+    } else {
+      result = await hardDeleteHullAssignment(assignmentId)
+    }
     if (result.success) {
-      if (keepHistory) {
-        toast.success(`已标记为 [旧]${hullNumber}`, { duration: 1500 })
-        setMembers(prev => prev.map(m =>
-          m.player_id === playerId ? { ...m, hull_number: newValue } : m
-        ))
-      } else {
-        toast.success('舷号已删除', { duration: 1500 })
-        setMembers(prev => prev.map(m =>
-          m.player_id === playerId ? { ...m, hull_number: null, hull_date: null } : m
-        ))
-        setSelectedSeat(null)
-      }
+      toast.success(keepHistory ? `已收回 ${hullNumber}` : '舷号已彻底删除', { duration: 1500 })
+      setSelectedSeat(null)
+      const assignments = await getHullOccupancy()
+      setHullAssignments(assignments)
     } else {
       toast.error(`操作失败: ${result.error}`)
     }
     setConfirmingHullDelete(null)
   }
 
-  const cancelPendingHull = (playerId) => {
-    setMembers(prev => prev.map(m =>
-      m.player_id === playerId && m.hull_number === '__pending__'
-        ? { ...m, hull_number: null }
-        : m
-    ))
-    setEditingHull(null)
-  }
-
-  // ========== 授予日期编辑 ==========
-  const handleOpenDatePicker = (playerId, currentDate) => {
+  // ========== 授舷日期 / 备注编辑 ==========
+  const handleOpenDatePicker = (assignmentId, currentDate, field = 'assigned_at') => {
     const dateVal = currentDate ? currentDate.slice(0, 10) : new Date().toISOString().slice(0, 10)
-    setEditingHullDate({ playerId, value: dateVal })
-    // 下一帧自动打开日历
+    setEditingHullDate({ assignmentId, field, value: dateVal })
     setTimeout(() => hullDateInputRef.current?.showPicker?.(), 50)
   }
 
-  const handleSaveHullDate = async (playerId, dateStr) => {
+  const handleSaveHullDate = async (assignmentId, field, dateStr) => {
     if (!dateStr) return
     const isoDate = new Date(dateStr + 'T00:00:00').toISOString()
-    const result = await setHullDate(playerId, isoDate)
+    const params = field === 'assigned_at'
+      ? { assigned_at: isoDate, update_assigned_at: true }
+      : { revoked_at: isoDate, update_revoked_at: true }
+    const result = await updateHullAssignment(assignmentId, params)
     if (result.success) {
-      toast.success('授予日期已更新', { duration: 1500 })
-      setMembers(prev => prev.map(m =>
-        m.player_id === playerId ? { ...m, hull_date: isoDate } : m
+      toast.success('日期已更新', { duration: 1500 })
+      setHullAssignments(prev => prev.map(a =>
+        a.id === assignmentId ? { ...a, [field]: isoDate } : a
       ))
     } else {
       toast.error(`更新失败: ${result.error}`)
@@ -481,7 +465,6 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
 
   // ========== 更迭舷号 ==========
 
-  // 更迭搜索建议
   const transferSuggestions = useMemo(() => {
     if (!transferSearchQuery.trim() || !transferringHull) return []
     const q = transferSearchQuery.trim().toLowerCase()
@@ -491,21 +474,19 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
       const name = (m.primary_name || '').toLowerCase()
       const pid = (m.player_id || '').toLowerCase()
       const allNames = (Array.isArray(m.all_names) ? m.all_names.join(' ') : (m.all_names || '')).toLowerCase()
-      if (name.includes(q) || pid.includes(q) || allNames.includes(q)) {
-        results.push(m)
-      }
+      if (name.includes(q) || pid.includes(q) || allNames.includes(q)) results.push(m)
       if (results.length >= 8) break
     }
     return results
   }, [transferSearchQuery, members, transferringHull])
 
   const handleStartTransfer = (playerId) => {
-    const m = members.find(mm => mm.player_id === playerId)
-    if (!m?.hull_number || m.hull_number === '__pending__') return
+    const activeAssignment = hullAssignments.find(a => a.player_id === playerId && a.revoked_at === null)
+    if (!activeAssignment) return
     setTransferringHull({
       oldPlayerId: playerId,
-      hullNumber: m.hull_number,
-      oldName: m.primary_name || playerId
+      hullNumber: activeAssignment.hull_number,
+      oldName: activeAssignment.primary_name || playerId
     })
     setTransferSearchQuery('')
   }
@@ -528,13 +509,9 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
     const result = await transferHullNumber(oldPlayerId, newPlayerId, hullNumber)
     if (result.success) {
       toast.success(`${hullNumber} 已更迭`, { duration: 1500 })
-      // 本地更新：旧持有人变 [旧]，新持有人获得舷号
-      setMembers(prev => prev.map(m => {
-        if (m.player_id === oldPlayerId) return { ...m, hull_number: `[旧]${hullNumber}` }
-        if (m.player_id === newPlayerId) return { ...m, hull_number: hullNumber, hull_date: new Date().toISOString() }
-        return m
-      }))
       setSelectedSeat(null)
+      const assignments = await getHullOccupancy()
+      setHullAssignments(assignments)
     } else {
       toast.error(`更迭失败: ${result.error}`)
     }
@@ -686,6 +663,16 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
   const handleSaveNote = async () => {
     if (!editingNote) return
     const note = editingNote.value.trim() || null
+    if (editingNote.type === 'hull') {
+      const result = await updateHullAssignment(editingNote.id, { notes: note, update_notes: true })
+      if (result.success) {
+        setHullAssignments(prev => prev.map(a => a.id === editingNote.id ? { ...a, notes: note } : a))
+      } else {
+        toast.error(`保存失败: ${result.error}`)
+      }
+      setEditingNote(null)
+      return
+    }
     if (editingNote.type === 'member') {
       const result = await setMemberBlacklist(editingNote.id, true, note)
       if (result.success) {
@@ -946,11 +933,21 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
     }
 
     return (
-      <div className="p-2 space-y-3">
-        {/* 选中座位信息卡 */}
+      <>
+        {/* 固定图例条（始终显示） */}
+        <div className="flex-shrink-0 flex items-center justify-end gap-2 px-3 py-1 border-b border-gray-700/30">
+          <div className="flex items-center gap-2 text-[10px] text-gray-500">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-gray-500/30 border border-gray-500/50 flex-shrink-0" />已占位</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-gray-700/20 border border-gray-600/50 flex-shrink-0 relative overflow-hidden"><span className="absolute inset-x-0 top-[5px] border-t border-gray-500/60" /></span>已离队</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-gray-700/15 border border-dashed border-gray-500/40 flex-shrink-0" />仅历史</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-gray-800/50 border border-gray-700/30 flex-shrink-0" />空位</span>
+          </div>
+        </div>
+        {/* 固定座位信息卡（不随座位区滚动） */}
         {selectedSeat !== null && (
+          <div className="flex-shrink-0 px-2 pt-2 pb-1 border-b border-gray-700/50">
           <div className="bg-gray-900/80 rounded-lg border border-gray-600/50 p-2.5 animate-in fade-in">
-            {selectedSeatMember ? (
+            {selectedSeatEntry?.current ? (
               /* ===== 当前持有者 ===== */
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -958,91 +955,117 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
                     <span className="text-sm font-bold text-white font-mono tracking-wider">
                       No.{String(selectedSeat).padStart(3, '0')}
                     </span>
-                    <span className="text-sm text-white">{selectedSeatMember.primary_name}</span>
-                    {!selectedSeatMember.active && (
-                      <span className="text-[11px] text-red-400">
-                        已离队{selectedSeatMember.leave_date ? ` ${formatDate(selectedSeatMember.leave_date)}` : ''}
-                      </span>
+                    <span className="text-sm text-white">{selectedSeatEntry.current.primary_name}</span>
+                    {!selectedSeatEntry.current.member_active && (
+                      <span className="text-[11px] text-red-400">已离队</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleCopy(selectedSeatMember.player_id, ' ID')}
-                      className="p-1 text-gray-400 hover:text-blue-400 hover:bg-blue-500/20 rounded transition-all"
-                      title="复制 ID"
-                    >
+                    <button onClick={() => handleCopy(selectedSeatEntry.current.player_id, ' ID')}
+                      className="p-1 text-gray-400 hover:text-blue-400 hover:bg-blue-500/20 rounded transition-all" title="复制 ID">
                       <CopyIcon />
                     </button>
                     <button
-                      onClick={() => handleRequestDeleteHull(selectedSeatMember.player_id)}
-                      className="text-xs px-1.5 py-0.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
-                    >
-                      删除舷号
+                      onClick={() => handleRequestDeleteHull(selectedSeatEntry.current.player_id, selectedSeatEntry.current.id, selectedSeatEntry.current.hull_number, selectedSeatEntry.current.primary_name)}
+                      className="text-xs px-1.5 py-0.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all">
+                      删除
                     </button>
-                    <button
-                      onClick={() => handleStartTransfer(selectedSeatMember.player_id)}
-                      className="text-xs px-1.5 py-0.5 text-amber-400 bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/30 rounded transition-all"
-                    >
-                      更迭舷号
+                    <button onClick={() => handleStartTransfer(selectedSeatEntry.current.player_id)}
+                      className="text-xs px-1.5 py-0.5 text-amber-400 bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/30 rounded transition-all">
+                      更迭
                     </button>
-                    <button
-                      onClick={() => setSelectedSeat(null)}
-                      className="text-gray-500 hover:text-white p-0.5 rounded transition-all"
-                    >
+                    <button onClick={() => setSelectedSeat(null)} className="text-gray-500 hover:text-white p-0.5 rounded transition-all">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
                   </div>
                 </div>
+                {/* QQ 信息行 */}
                 <div className="flex items-center gap-2 text-xs text-gray-400 flex-wrap">
-                  <span className="font-mono">{selectedSeatMember.player_id}</span>
-                  <span className="text-gray-600">|</span>
-                  <button
-                    onClick={() => handleOpenDatePicker(selectedSeatMember.player_id, selectedSeatMember.hull_date)}
-                    className="inline-flex items-center gap-0.5 hover:text-cyan-300 transition-colors group/date"
-                    title="点击修改授予日期"
-                  >
-                    <span>授予</span>
-                    <span className="text-cyan-400/80 group-hover/date:text-cyan-300 border-b border-dashed border-cyan-500/30 group-hover/date:border-cyan-400/60">
-                      {selectedSeatMember.hull_date ? formatDate(selectedSeatMember.hull_date) : '未设置'}
-                    </span>
-                    <svg className="w-2.5 h-2.5 text-gray-600 group-hover/date:text-cyan-400/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  </button>
-                  {selectedSeatMember.qq_id && (
+                  <span className="font-mono">{selectedSeatEntry.current.player_id}</span>
+                  {selectedSeatEntry.current.qq_id && (
                     <>
                       <span className="text-gray-600">|</span>
-                      <span className="inline-flex items-center gap-0.5">
-                        <QQIcon />
-                        {selectedSeatMember.qq_nickname || 'QQ用户'}
-                      </span>
-                      <button
-                        onClick={() => handleCopy(selectedSeatMember.qq_id, ' QQ')}
-                        className="p-0.5 text-gray-500 hover:text-green-400 rounded transition-all"
-                      >
-                        <CopyIcon />
-                      </button>
-                      <span className="font-mono">{selectedSeatMember.qq_id}</span>
+                      <span className="inline-flex items-center gap-0.5"><QQIcon />{selectedSeatEntry.current.qq_nickname || 'QQ用户'}</span>
+                      <button onClick={() => handleCopy(selectedSeatEntry.current.qq_id, ' QQ')} className="p-0.5 text-gray-500 hover:text-green-400 rounded transition-all"><CopyIcon /></button>
+                      <span className="font-mono">{selectedSeatEntry.current.qq_id}</span>
                     </>
                   )}
-                  {selectedSeatMember.qq_join_time && (
-                    <>
-                      <span className="text-gray-600">|</span>
-                      <span>入群 {formatDate(selectedSeatMember.qq_join_time)}</span>
-                    </>
+                  {selectedSeatEntry.current.qq_join_time && (
+                    <><span className="text-gray-600">|</span><span>入群 {formatDate(selectedSeatEntry.current.qq_join_time)}</span></>
                   )}
                 </div>
-                {/* 旧持有者列表 */}
+                {/* 当前授舷事件行 */}
+                <div className="flex items-center gap-1.5 text-[10px] text-gray-500 flex-wrap">
+                  <button onClick={() => handleOpenDatePicker(selectedSeatEntry.current.id, selectedSeatEntry.current.assigned_at, 'assigned_at')}
+                    className="hover:text-cyan-300 transition-colors border-b border-dashed border-transparent hover:border-cyan-500/40" title="点击修改授舷日期">
+                    授舷 <span className="text-cyan-400/80">{formatDate(selectedSeatEntry.current.assigned_at) || '未设置'}</span>
+                  </button>
+                  <span>→</span>
+                  <span className="text-green-400/60">至今</span>
+                  <span>·</span>
+                  {editingNote?.type === 'hull' && editingNote?.id === selectedSeatEntry.current.id ? (
+                    <input autoFocus type="text" value={editingNote.value}
+                      onChange={e => setEditingNote({ ...editingNote, value: e.target.value })}
+                      onBlur={handleSaveNote}
+                      onKeyDown={e => { if (e.key === 'Enter') handleSaveNote(); if (e.key === 'Escape') setEditingNote(null) }}
+                      className="flex-1 min-w-0 text-[10px] bg-gray-700 text-white px-1 py-px rounded border border-amber-500/60 outline-none"
+                      placeholder="输入备注…" />
+                  ) : (
+                    <button onClick={() => setEditingNote({ type: 'hull', id: selectedSeatEntry.current.id, value: selectedSeatEntry.current.notes || '' })}
+                      className="text-amber-400/60 italic hover:text-amber-300 transition-colors border-b border-dashed border-transparent hover:border-amber-500/40"
+                      title={selectedSeatEntry.current.notes || '点击添加备注'}>
+                      {selectedSeatEntry.current.notes || <span className="text-gray-600 not-italic">-</span>}
+                    </button>
+                  )}
+                </div>
+                {/* 历史持有者 */}
                 {selectedSeatEntry?.legacy?.length > 0 && (
                   <div className="mt-1 pt-1 border-t border-gray-700/30">
-                    <span className="text-[10px] text-amber-400/60 mb-0.5 block">旧持有者：</span>
-                    {selectedSeatEntry.legacy.map(lm => (
-                      <div key={lm.player_id} className="flex items-center gap-2 text-[10px] text-gray-500 pl-1">
-                        <span className="text-gray-400">{lm.primary_name}</span>
-                        <span className="font-mono">{lm.player_id}</span>
-                        {!lm.active && <span className="text-red-400/50">已离队</span>}
+                    <span className="text-[10px] text-amber-400/60 mb-0.5 block">历史持有者：</span>
+                    {selectedSeatEntry.legacy.map(la => (
+                      <div key={la.id} className="py-0.5">
+                        <div className="flex items-center gap-1.5 text-[10px]">
+                          <span className="text-gray-400">{la.primary_name}</span>
+                          <button onClick={() => handleCopy(la.player_id, ' ID')} className="p-0.5 text-gray-600 hover:text-blue-400 rounded transition-all"><CopyIcon /></button>
+                          <span className="text-gray-600 font-mono">{la.player_id}</span>
+                          {!la.member_active && <span className="text-red-400/50">已离队</span>}
+                        </div>
+                        {(la.qq_id || la.qq_nickname) && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-gray-500 pl-1 mt-0.5 flex-wrap">
+                            <span className="inline-flex items-center gap-0.5 text-gray-400"><QQIcon />{la.qq_nickname || 'QQ用户'}</span>
+                            <button onClick={() => handleCopy(la.qq_id, ' QQ')} className="p-0.5 hover:text-green-400 rounded transition-all"><CopyIcon /></button>
+                            <span className="font-mono">{la.qq_id}</span>
+                            {la.qq_join_time && <><span className="text-gray-600">|</span><span>入群 <span className="text-gray-400">{formatDate(la.qq_join_time)}</span></span></>}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1.5 text-[10px] text-gray-500 pl-1 mt-0.5 flex-wrap">
+                          <button onClick={() => handleOpenDatePicker(la.id, la.assigned_at, 'assigned_at')}
+                            className="hover:text-cyan-300 transition-colors border-b border-dashed border-transparent hover:border-cyan-500/40">
+                            授舷 <span className="text-cyan-400/70">{formatDate(la.assigned_at) || '未设置'}</span>
+                          </button>
+                          <span>→</span>
+                          <button onClick={() => handleOpenDatePicker(la.id, la.revoked_at, 'revoked_at')}
+                            className="hover:text-amber-300 transition-colors border-b border-dashed border-transparent hover:border-amber-500/40">
+                            <span className="text-amber-400/70">{formatDate(la.revoked_at) || '?'}</span><span className="text-amber-500 ml-0.5">收回</span>
+                          </button>
+                          <span>·</span>
+                          {editingNote?.type === 'hull' && editingNote?.id === la.id ? (
+                            <input autoFocus type="text" value={editingNote.value}
+                              onChange={e => setEditingNote({ ...editingNote, value: e.target.value })}
+                              onBlur={handleSaveNote}
+                              onKeyDown={e => { if (e.key === 'Enter') handleSaveNote(); if (e.key === 'Escape') setEditingNote(null) }}
+                              className="flex-1 min-w-0 text-[10px] bg-gray-700 text-white px-1 py-px rounded border border-amber-500/60 outline-none"
+                              placeholder="输入备注…" />
+                          ) : (
+                            <button onClick={() => setEditingNote({ type: 'hull', id: la.id, value: la.notes || '' })}
+                              className="text-amber-400/60 italic hover:text-amber-300 transition-colors border-b border-dashed border-transparent hover:border-amber-500/40"
+                              title={la.notes || '点击添加备注'}>
+                              {la.notes || <span className="text-gray-600 not-italic">-</span>}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1110,7 +1133,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
                       <div key={lm.player_id} className="flex items-center gap-2 text-[10px] text-gray-500 pl-1">
                         <span className="text-gray-400">{lm.primary_name}</span>
                         <span className="font-mono">{lm.player_id}</span>
-                        {!lm.active && <span className="text-red-400/50">已离队</span>}
+                        {!lm.member_active && <span className="text-red-400/50">已离队</span>}
                       </div>
                     ))}
                   </div>
@@ -1118,12 +1141,14 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
               </div>
             )}
           </div>
+          </div>
         )}
 
-        {/* 分区座位 */}
+        {/* 可滚动座位分区 */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-3">
         {HULL_SECTIONS.map((section) => {
           const [start, end] = section.range
-          const rows = getSectionRows(start, end, hullOccupancyMap)
+          const rows = getSectionRows(start, end, section.firstRowEnd)
           const sectionOccupied = rows.reduce((sum, row) => {
             for (let i = row.cellStart; i <= row.cellEnd; i++) {
               const e = hullOccupancyMap.get(i)
@@ -1145,95 +1170,62 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
               </div>
 
               {/* 座位网格 */}
-              {rows.length === 0 ? (
-                <div className="text-center py-2 text-xs text-gray-600">暂无占位</div>
-              ) : (
-                <div className="space-y-1">
-                  {rows.map(({ rowNum, cellStart, cellEnd }) => {
-                    // 补齐行首空位对齐到10格
-                    const cells = []
-                    for (let i = cellStart; i <= cellEnd; i++) {
-                      const entry = hullOccupancyMap.get(i)
-                      cells.push({ num: i, entry })
-                    }
-                    return (
-                      <div key={rowNum} className="flex gap-1">
-                        {cells.map((cell) => {
-                          const entry = cell.entry
-                          const currentHolder = entry?.current
-                          const legacyCount = entry?.legacy?.length || 0
-                          const isOccupied = !!currentHolder || legacyCount > 0
-                          const isLegacyOnly = !currentHolder && legacyCount > 0
-                          const isLeft = currentHolder && !currentHolder.active
-                          const isSelected = selectedSeat === cell.num
-                          const numStr = String(cell.num).padStart(3, '0')
-                          const titleName = currentHolder
-                            ? `No.${numStr} — ${currentHolder.primary_name}${isLeft ? ' (已离队)' : ''}${legacyCount ? ` (+${legacyCount}旧)` : ''}`
-                            : isLegacyOnly
-                              ? `No.${numStr} — 仅旧持有者 ×${legacyCount}`
-                              : `No.${numStr}`
-                          return (
-                            <button
-                              key={cell.num}
-                              onClick={() => { setSelectedSeat(isSelected ? null : cell.num); setSeatSearchQuery('') }}
-                              className={`flex-1 h-8 rounded text-[11px] font-mono font-bold transition-all relative overflow-hidden ${
-                                isSelected
-                                  ? 'border-2 border-dashed border-white/80 bg-white/10 text-white z-10'
-                                  : isLegacyOnly
-                                    ? 'border border-dashed border-gray-500/40 bg-gray-700/15 text-gray-500 hover:brightness-125'
-                                    : isLeft
-                                      ? 'border border-gray-600/50 bg-gray-700/20 text-gray-500 line-through hover:brightness-125'
-                                      : isOccupied
-                                        ? 'border ' + section.bgOccupied + ' hover:brightness-125 hover:scale-105'
-                                        : 'border ' + section.bgEmpty + ' hover:brightness-150'
-                              }`}
-                              title={titleName}
-                            >
-                              {/* 占位光效 */}
-                              {isOccupied && !isLeft && !isLegacyOnly && (
-                                <div className="absolute inset-0 bg-gradient-to-t from-transparent to-white/[0.06] pointer-events-none" />
-                              )}
-                              <span className="relative">{numStr}</span>
-                              {/* 旧持有者角标 */}
-                              {legacyCount > 0 && (
-                                <span className="absolute top-0 right-0 text-[7px] leading-none text-amber-400/80 bg-gray-900/60 rounded-bl px-0.5">
-                                  {legacyCount}
-                                </span>
-                              )}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+              <div className="space-y-1">
+                {rows.map(({ rowNum, cellStart, cellEnd }) => {
+                  const cells = []
+                  for (let i = cellStart; i <= cellEnd; i++) {
+                    cells.push({ num: i, entry: hullOccupancyMap.get(i) })
+                  }
+                  return (
+                    <div key={rowNum} className="flex gap-1">
+                      {cells.map((cell) => {
+                        const entry = cell.entry
+                        const currentHolder = entry?.current
+                        const legacyCount = entry?.legacy?.length || 0
+                        const isOccupied = !!currentHolder || legacyCount > 0
+                        const isLegacyOnly = !currentHolder && legacyCount > 0
+                        const isLeft = currentHolder && !currentHolder.member_active
+                        const isSelected = selectedSeat === cell.num
+                        const numStr = String(cell.num).padStart(3, '0')
+                        const titleName = currentHolder
+                          ? `No.${numStr} — ${currentHolder.primary_name}${isLeft ? ' (已离队)' : ''}${legacyCount ? ` (+${legacyCount}历史)` : ''}`
+                          : isLegacyOnly
+                            ? `No.${numStr} — 仅历史记录 ×${legacyCount}`
+                            : `No.${numStr}`
+                        return (
+                          <button
+                            key={cell.num}
+                            onClick={() => { setSelectedSeat(isSelected ? null : cell.num); setSeatSearchQuery('') }}
+                            className={`flex-1 h-8 rounded text-[11px] font-mono font-bold transition-all relative overflow-hidden ${
+                              isSelected
+                                ? 'border-2 border-dashed border-white/80 bg-white/10 text-white z-10'
+                                : isLegacyOnly
+                                  ? 'border border-dashed border-gray-500/40 bg-gray-700/15 text-gray-500 hover:brightness-125'
+                                  : isLeft
+                                    ? 'border border-gray-600/50 bg-gray-700/20 text-gray-500 line-through hover:brightness-125'
+                                    : isOccupied
+                                      ? 'border ' + section.bgOccupied + ' hover:brightness-125 hover:scale-105'
+                                      : 'border ' + section.bgEmpty + ' hover:brightness-150'
+                            }`}
+                            title={titleName}
+                          >
+                            {isOccupied && !isLeft && !isLegacyOnly && (
+                              <div className="absolute inset-0 bg-gradient-to-t from-transparent to-white/[0.06] pointer-events-none" />
+                            )}
+                            <span className="relative">{numStr}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )
         })}
 
-        {/* 图例 */}
-        <div className="flex items-center justify-center gap-3 pt-1 pb-0.5 flex-wrap">
-          <div className="flex items-center gap-1.5">
-            <div className="w-3.5 h-3.5 rounded bg-gray-500/30 border border-gray-500/50"></div>
-            <span className="text-[11px] text-gray-500">已占位</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3.5 h-3.5 rounded bg-gray-700/20 border border-gray-600/50">
-              <div className="w-full h-1/2 mt-[5px] border-t border-gray-500/60"></div>
-            </div>
-            <span className="text-[11px] text-gray-500">已离队</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3.5 h-3.5 rounded bg-gray-700/15 border border-dashed border-gray-500/40"></div>
-            <span className="text-[11px] text-gray-500">仅[旧]</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3.5 h-3.5 rounded bg-gray-800/50 border border-gray-700/30"></div>
-            <span className="text-[11px] text-gray-500">空位</span>
-          </div>
         </div>
-      </div>
+      </>
     )
   }
 
@@ -1246,217 +1238,257 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
         </div>
       )
     }
+
+    if (activeTab === 'hull') {
+      if (hullMembers.length === 0 && hullEventList.length === 0) {
+        return (
+          <div className="text-center py-8 text-gray-500 text-xs">
+            暂无舷号记录，搜索成员添加
+          </div>
+        )
+      }
+      return (
+        <div>
+          {/* 待分配成员 */}
+          {hullMembers.map((m) => (
+            <div key={m.player_id} className="px-2 py-1.5 border-b border-gray-700/30 bg-blue-500/5 border-l-2 border-l-blue-500 hover:bg-blue-500/10 transition-colors">
+              <div className="flex items-center justify-between gap-1">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <span className="text-[9px] text-blue-400 bg-blue-500/10 px-1 py-px rounded flex-shrink-0">待分配</span>
+                  <span className="text-xs text-white truncate">{m.primary_name || m.player_id}</span>
+                  <span className="text-[10px] text-gray-500 font-mono">{m.player_id}</span>
+                </div>
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  {editingHull?.playerId === m.player_id ? (
+                    <div className="flex items-center gap-0.5">
+                      <span className="text-gray-400 text-[10px]">No.</span>
+                      <input
+                        type="text" autoFocus maxLength={3} value={editingHull.value}
+                        onChange={(e) => setEditingHull({ ...editingHull, value: e.target.value.replace(/\D/g, '') })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { editingHull.value.trim() ? handleSaveHull(m.player_id, editingHull.value) : cancelPendingHull(m.player_id) }
+                          if (e.key === 'Escape') cancelPendingHull(m.player_id)
+                        }}
+                        onBlur={() => editingHull.value.trim() ? handleSaveHull(m.player_id, editingHull.value) : cancelPendingHull(m.player_id)}
+                        className="w-10 bg-gray-700 text-white text-xs text-center px-1 py-0.5 rounded border border-blue-500 outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <button onClick={() => setEditingHull({ playerId: m.player_id, value: '' })} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors">
+                      输入舷号
+                    </button>
+                  )}
+                  <button onClick={() => cancelPendingHull(m.player_id)} className="text-[10px] px-1 py-0.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all">
+                    取消
+                  </button>
+                </div>
+              </div>
+              {m.qq_id && (
+                <div className="flex items-center gap-2 text-[10px] text-gray-500 pl-5 mt-0.5">
+                  <span className="inline-flex items-center gap-0.5 text-gray-400"><QQIcon />{m.qq_nickname || 'QQ用户'}</span>
+                  <div className="flex items-center gap-0.5">
+                    <button onClick={() => handleCopy(m.qq_id, ' QQ')} className="p-0.5 text-gray-500 hover:text-green-400 hover:bg-green-500/20 rounded transition-all" title="复制 QQ 号"><CopyIcon /></button>
+                    <span className="font-mono">{m.qq_id}</span>
+                  </div>
+                  {m.qq_join_time && <><span className="text-gray-600">|</span><span>入群 <span className="text-gray-400">{formatDate(m.qq_join_time)}</span></span></>}
+                </div>
+              )}
+            </div>
+          ))}
+          {/* 授舷事件日志 */}
+          {(() => {
+            let lastMonthKey = null
+            let colorIdx = 0
+            const MONTH_COLORS = [
+              { border: 'border-cyan-500/50', bg: 'from-cyan-950/25', text: 'text-cyan-300/80', cardBg: 'bg-cyan-900/40' },
+              { border: 'border-indigo-500/50', bg: 'from-indigo-950/25', text: 'text-indigo-300/80', cardBg: 'bg-indigo-900/40' },
+            ]
+            return hullEventList.map((a) => {
+              const isActive = a.revoked_at === null
+              const hullNum = parseInt(a.hull_number.replace('No.', ''), 10)
+              const hullSection = HULL_SECTIONS.find(s => hullNum >= s.range[0] && hullNum <= s.range[1])
+              let monthHeader = null
+              if (hullSort === 'date' || hullSort === 'qq_join') {
+                const dateVal = hullSort === 'date' ? a.assigned_at : a.qq_join_time
+                const mk = dateVal ? `${new Date(dateVal).getFullYear()}-${String(new Date(dateVal).getMonth() + 1).padStart(2, '0')}` : '__none__'
+                if (mk !== lastMonthKey) {
+                  if (lastMonthKey !== null) colorIdx++
+                  lastMonthKey = mk
+                  const c = MONTH_COLORS[colorIdx % 2]
+                  monthHeader = (
+                    <div className={`px-2 pt-3 pb-1 border-l-2 ${c.border} bg-gradient-to-r ${c.bg} to-transparent`}>
+                      <span className={`text-[11px] font-mono font-semibold ${c.text}`}>
+                        {mk === '__none__' ? '未知时间' : mk}
+                      </span>
+                    </div>
+                  )
+                }
+              }
+              const mc = hullSort !== 'number' ? MONTH_COLORS[colorIdx % 2] : null
+              return (
+                <Fragment key={a.id}>
+                  {monthHeader}
+                  <div className={`px-2 py-1.5 border-b border-gray-700/30 hover:bg-gray-700/40 transition-colors group ${mc ? `${mc.cardBg} border-l-2 ${mc.border}` : ''} ${!isActive ? 'opacity-60' : ''}`}>
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <span className={`text-[10px] font-mono px-1 py-px rounded border flex-shrink-0 ${isActive ? (hullSection?.bgOccupied || 'bg-gray-700/50 border-gray-600/50 text-gray-300') : 'border-gray-700/50 text-gray-500 bg-gray-800/50'}`}>{a.hull_number}</span>
+                        {isActive
+                          ? <span className="text-[9px] text-green-400/80 flex-shrink-0">活跃</span>
+                          : <span className="text-[9px] text-gray-500 flex-shrink-0">已收回</span>
+                        }
+                        <span className="text-xs text-white truncate">{a.primary_name}</span>
+                        {!a.member_active && <span className="text-[9px] text-red-400/70 flex-shrink-0">已离队</span>}
+                        <div className="flex items-center gap-0.5 flex-shrink-0">
+                          <button onClick={() => handleCopy(a.player_id, ' ID')} className="p-0.5 text-gray-500 hover:text-blue-400 hover:bg-blue-500/20 rounded transition-all" title="复制 ID"><CopyIcon /></button>
+                          <span className="text-[10px] text-gray-500 font-mono hidden sm:inline">{a.player_id}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => handleRequestDeleteHull(a.player_id, a.id, a.hull_number, a.primary_name)}
+                          className="text-[10px] px-1 py-0.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
+                        >
+                          {isActive ? '收回' : '删除'}
+                        </button>
+                        {isActive && (
+                          <button onClick={() => handleStartTransfer(a.player_id)} className="text-[10px] px-1.5 py-0.5 text-amber-400 bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/30 rounded transition-all">
+                            更迭
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {(a.qq_id || a.qq_nickname) && (
+                      <div className="flex items-center gap-1.5 text-[10px] text-gray-500 pl-1 mt-0.5 flex-wrap">
+                        <span className="inline-flex items-center gap-0.5 text-gray-400"><QQIcon />{a.qq_nickname || 'QQ用户'}</span>
+                        {a.qq_id && (
+                          <div className="flex items-center gap-0.5">
+                            <button onClick={() => handleCopy(a.qq_id, ' QQ')} className="p-0.5 text-gray-500 hover:text-green-400 rounded transition-all"><CopyIcon /></button>
+                            <span className="font-mono">{a.qq_id}</span>
+                          </div>
+                        )}
+                        {a.qq_join_time && <><span className="text-gray-600">|</span><span>入群 <span className="text-gray-400">{formatDate(a.qq_join_time)}</span></span></>}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1.5 text-[10px] text-gray-500 pl-1 mt-0.5 flex-wrap">
+                      <button onClick={() => handleOpenDatePicker(a.id, a.assigned_at, 'assigned_at')} className="hover:text-cyan-300 transition-colors border-b border-dashed border-transparent hover:border-cyan-500/40" title="点击修改授舷日期">
+                        授舷 <span className="text-cyan-400/70">{formatDate(a.assigned_at) || '未设置'}</span>
+                      </button>
+                      <span>→</span>
+                      {isActive ? (
+                        <span className="text-green-400/60">至今</span>
+                      ) : (
+                        <button onClick={() => handleOpenDatePicker(a.id, a.revoked_at, 'revoked_at')} className="hover:text-amber-300 transition-colors border-b border-dashed border-transparent hover:border-amber-500/40" title="点击修改收回日期">
+                          <span className="text-amber-400/70">{formatDate(a.revoked_at) || '?'}</span><span className="text-amber-500 ml-0.5">收回</span>
+                        </button>
+                      )}
+                      <span>·</span>
+                      {editingNote?.type === 'hull' && editingNote?.id === a.id ? (
+                        <input autoFocus type="text" value={editingNote.value}
+                          onChange={e => setEditingNote({ ...editingNote, value: e.target.value })}
+                          onBlur={handleSaveNote}
+                          onKeyDown={e => { if (e.key === 'Enter') handleSaveNote(); if (e.key === 'Escape') setEditingNote(null) }}
+                          className="flex-1 min-w-0 text-[10px] bg-gray-700 text-white px-1 py-px rounded border border-amber-500/60 outline-none"
+                          placeholder="输入备注…" />
+                      ) : (
+                        <button onClick={() => setEditingNote({ type: 'hull', id: a.id, value: a.notes || '' })}
+                          className="text-amber-400/60 italic hover:text-amber-300 transition-colors border-b border-dashed border-transparent hover:border-amber-500/40"
+                          title={a.notes || '点击添加备注'}>
+                          {a.notes || <span className="text-gray-600 not-italic">-</span>}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </Fragment>
+              )
+            })
+          })()}
+        </div>
+      )
+    }
+
+    // 黑名单 tab
     if (currentList.length === 0) {
       return (
         <div className="text-center py-8 text-gray-500 text-xs">
-          {activeTab === 'hull' ? '暂无舷号记录，搜索成员添加' : '暂无黑名单记录，搜索成员添加'}
+          暂无黑名单记录，搜索成员添加
         </div>
       )
     }
     return (
       <div className="divide-y divide-gray-700/30">
-        {currentList.map((m, index) => {
-          const monthBg = activeTab === 'hull' && hullSort === 'date'
-            ? (hullMonthColorMap.get(m.player_id) === 1 ? 'bg-gray-800/40' : 'bg-gray-900/20')
-            : ''
-          let monthLabel = null
-          if (activeTab === 'hull' && hullSort === 'date') {
-            const curMonth = m.qq_join_time
-              ? `${new Date(m.qq_join_time).getFullYear()}年${new Date(m.qq_join_time).getMonth() + 1}月`
-              : '未知入群时间'
-            const prevM = index > 0 ? currentList[index - 1] : null
-            const prevMonth = prevM?.qq_join_time
-              ? `${new Date(prevM.qq_join_time).getFullYear()}年${new Date(prevM.qq_join_time).getMonth() + 1}月`
-              : '未知入群时间'
-            if (index === 0 || curMonth !== prevMonth) {
-              monthLabel = curMonth
-            }
-          }
-          return (
-            <div key={m.player_id}>
-              {monthLabel && (
-                <div className="px-2 py-1 bg-gray-700/20 border-b border-gray-700/30">
-                  <span className="text-[10px] text-gray-400 font-medium">{monthLabel} 入群</span>
-                </div>
-              )}
-              <div className={`px-2 py-1.5 hover:bg-gray-700/40 transition-colors group ${!m.active && activeTab !== 'blacklist' ? 'opacity-60' : ''} ${monthBg}`}>
-                {/* 主行 */}
-                <div className="flex items-center justify-between gap-1">
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                    <span className="text-[10px] text-gray-600 w-4 flex-shrink-0">{index + 1}</span>
-                    <span className={`text-xs truncate ${activeTab === 'blacklist' && m.active ? 'text-red-400 font-medium' : 'text-white'}`}>
-                      {m.primary_name || m.player_id}
+        {currentList.map((m, index) => (
+          <div key={m.player_id}>
+            <div className="px-2 py-1.5 hover:bg-gray-700/40 transition-colors group">
+              <div className="flex items-center justify-between gap-1">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <span className="text-[10px] text-gray-600 w-4 flex-shrink-0">{index + 1}</span>
+                  <span className={`text-xs truncate ${m.active ? 'text-red-400 font-medium' : 'text-white'}`}>
+                    {m.primary_name || m.player_id}
+                  </span>
+                  {m.active && <span className="text-[9px] text-red-500/80 flex-shrink-0 font-medium">在队</span>}
+                  {!m.active && (
+                    <span className="text-[9px] text-red-400/70 flex-shrink-0">
+                      已离队{m.leave_date ? ` ${formatDate(m.leave_date)}` : ''}
                     </span>
-                    {activeTab === 'blacklist' && m.active && (
-                      <span className="text-[9px] text-red-500/80 flex-shrink-0 font-medium">在队</span>
-                    )}
-                    {!m.active && (
-                      <span className="text-[9px] text-red-400/70 flex-shrink-0">
-                        已离队{m.leave_date ? ` ${formatDate(m.leave_date)}` : ''}
-                      </span>
-                    )}
-                    <div className="flex items-center gap-0.5 flex-shrink-0">
-                      <button
-                        onClick={() => handleCopy(m.player_id, ' ID')}
-                        className="p-0.5 text-gray-500 hover:text-blue-400 hover:bg-blue-500/20 rounded transition-all"
-                        title="复制 ID"
-                      >
-                        <CopyIcon />
-                      </button>
-                      <span className="text-[10px] text-gray-500 font-mono hidden sm:inline">{m.player_id}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {activeTab === 'hull' && (
-                      editingHull?.playerId === m.player_id ? (
-                        <div className="flex items-center gap-0.5">
-                          <span className="text-gray-400 text-[10px]">No.</span>
-                          <input
-                            type="text"
-                            autoFocus
-                            maxLength={3}
-                            value={editingHull.value}
-                            onChange={(e) => setEditingHull({ ...editingHull, value: e.target.value.replace(/\D/g, '') })}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                editingHull.value.trim() ? handleSaveHull(m.player_id, editingHull.value) : cancelPendingHull(m.player_id)
-                              }
-                              if (e.key === 'Escape') cancelPendingHull(m.player_id)
-                            }}
-                            onBlur={() => editingHull.value.trim() ? handleSaveHull(m.player_id, editingHull.value) : cancelPendingHull(m.player_id)}
-                            className="w-10 bg-gray-700 text-white text-xs text-center px-1 py-0.5 rounded border border-blue-500 outline-none"
-                          />
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            if (m.hull_number?.startsWith('[旧]')) return // 旧持有者不可编辑
-                            const current = m.hull_number && m.hull_number !== '__pending__' ? m.hull_number.replace(/\D/g, '') : ''
-                            setEditingHull({ playerId: m.player_id, value: current })
-                          }}
-                          className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
-                            m.hull_number?.startsWith('[旧]')
-                              ? 'bg-amber-600/10 text-amber-500/70 cursor-default'
-                              : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/30'
-                          }`}
-                        >
-                          {m.hull_number === '__pending__' ? '...' : m.hull_number}
-                        </button>
-                      )
-                    )}
-                    {activeTab === 'blacklist' && (
-                      editingNote?.type === 'member' && editingNote?.id === m.player_id ? (
-                        <input
-                          autoFocus
-                          type="text"
-                          value={editingNote.value}
-                          onChange={e => setEditingNote({ ...editingNote, value: e.target.value })}
-                          onBlur={handleSaveNote}
-                          onKeyDown={e => { if (e.key === 'Enter') handleSaveNote(); if (e.key === 'Escape') setEditingNote(null) }}
-                          className="w-28 text-[10px] bg-gray-700 text-gray-200 px-1 py-0.5 rounded border border-orange-500/60 outline-none"
-                          placeholder="输入备注…"
-                        />
-                      ) : (
-                        <button
-                          onClick={() => setEditingNote({ type: 'member', id: m.player_id, value: m.blacklist_note || '' })}
-                          className="text-[10px] text-gray-400 max-w-[80px] truncate hover:text-orange-300 transition-colors border-b border-dashed border-transparent hover:border-orange-500/40"
-                          title={m.blacklist_note || '点击添加备注'}
-                        >
-                          {m.blacklist_note || <span className="text-gray-600 italic">备注</span>}
-                        </button>
-                      )
-                    )}
-                    <button
-                      onClick={() => activeTab === 'hull' ? handleRequestDeleteHull(m.player_id) : handleDeleteBlacklist(m.player_id)}
-                      className="text-[10px] px-1 py-0.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
-                    >
-                      {activeTab === 'hull' ? '删除' : '移除'}
-                    </button>
-                    {activeTab === 'hull' && m.hull_number && m.hull_number !== '__pending__' && !m.hull_number.startsWith('[旧]') && (
-                      <button
-                        onClick={() => handleStartTransfer(m.player_id)}
-                        className="text-[10px] px-1.5 py-0.5 text-amber-400 bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/30 rounded transition-all"
-                      >
-                        更迭
-                      </button>
-                    )}
+                  )}
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
+                    <button onClick={() => handleCopy(m.player_id, ' ID')} className="p-0.5 text-gray-500 hover:text-blue-400 hover:bg-blue-500/20 rounded transition-all" title="复制 ID"><CopyIcon /></button>
+                    <span className="text-[10px] text-gray-500 font-mono hidden sm:inline">{m.player_id}</span>
                   </div>
                 </div>
-                {/* 副行 */}
-                <div className="flex items-center gap-2 text-[10px] text-gray-500 pl-5 mt-0.5">
-                  {m.qq_id ? (
-                    <>
-                      <span className="inline-flex items-center gap-0.5 text-gray-400">
-                        <QQIcon />
-                        {m.qq_nickname || 'QQ用户'}
-                      </span>
-                      <div className="flex items-center gap-0.5">
-                        <button
-                          onClick={() => handleCopy(m.qq_id, ' QQ')}
-                          className="p-0.5 text-gray-500 hover:text-green-400 hover:bg-green-500/20 rounded transition-all"
-                          title="复制 QQ 号"
-                        >
-                          <CopyIcon />
-                        </button>
-                        <span className="font-mono">{m.qq_id}</span>
-                      </div>
-                      {m.qq_join_time && (
-                        <>
-                          <span className="text-gray-600">|</span>
-                          <span>入群 <span className="text-gray-400">{formatDate(m.qq_join_time)}</span></span>
-                        </>
-                      )}
-                    </>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {editingNote?.type === 'member' && editingNote?.id === m.player_id ? (
+                    <input autoFocus type="text" value={editingNote.value}
+                      onChange={e => setEditingNote({ ...editingNote, value: e.target.value })}
+                      onBlur={handleSaveNote}
+                      onKeyDown={e => { if (e.key === 'Enter') handleSaveNote(); if (e.key === 'Escape') setEditingNote(null) }}
+                      className="w-28 text-[10px] bg-gray-700 text-gray-200 px-1 py-0.5 rounded border border-orange-500/60 outline-none"
+                      placeholder="输入备注…" />
                   ) : (
-                    <span className="text-gray-600">未关联 QQ</span>
+                    <button onClick={() => setEditingNote({ type: 'member', id: m.player_id, value: m.blacklist_note || '' })}
+                      className="text-[10px] text-gray-400 max-w-[80px] truncate hover:text-orange-300 transition-colors border-b border-dashed border-transparent hover:border-orange-500/40"
+                      title={m.blacklist_note || '点击添加备注'}>
+                      {m.blacklist_note || <span className="text-gray-600 italic">备注</span>}
+                    </button>
                   )}
-                  {activeTab === 'hull' && (
-                    <>
-                      <span className="text-gray-600">|</span>
-                      <button
-                        onClick={() => handleOpenDatePicker(m.player_id, m.hull_date)}
-                        className="inline-flex items-center gap-0.5 hover:text-cyan-300 transition-colors group/date"
-                        title="点击修改授予日期"
-                      >
-                        <span>授予</span>
-                        <span className="text-cyan-400/70 group-hover/date:text-cyan-300 border-b border-dashed border-cyan-500/20 group-hover/date:border-cyan-400/50">
-                          {m.hull_date ? formatDate(m.hull_date) : '未设置'}
-                        </span>
-                        <svg className="w-2 h-2 text-gray-600 group-hover/date:text-cyan-400/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </button>
-                    </>
-                  )}
-                  {activeTab === 'blacklist' && (
-                    m.blacklist_date ? (
-                      <>
-                        <span className="text-gray-600">|</span>
-                        <button
-                          onClick={() => setEditingBlacklistDate({ type: 'member', id: m.player_id, value: m.blacklist_date })}
-                          className="inline-flex items-center gap-0.5 hover:text-red-300 transition-colors group/bd"
-                          title="点击修改拉黑时间"
-                        >
-                          <span>拉黑 <span className="text-red-400/70 group-hover/bd:text-red-300 border-b border-dashed border-red-500/20 group-hover/bd:border-red-400/50">{formatDate(m.blacklist_date)}</span></span>
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => setEditingBlacklistDate({ type: 'member', id: m.player_id, value: '' })}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-red-400/60"
-                        title="设置拉黑时间"
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </button>
-                    )
-                  )}
+                  <button onClick={() => handleDeleteBlacklist(m.player_id)} className="text-[10px] px-1 py-0.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all">
+                    移除
+                  </button>
                 </div>
               </div>
+              <div className="flex items-center gap-2 text-[10px] text-gray-500 pl-5 mt-0.5">
+                {m.qq_id ? (
+                  <>
+                    <span className="inline-flex items-center gap-0.5 text-gray-400"><QQIcon />{m.qq_nickname || 'QQ用户'}</span>
+                    <div className="flex items-center gap-0.5">
+                      <button onClick={() => handleCopy(m.qq_id, ' QQ')} className="p-0.5 text-gray-500 hover:text-green-400 hover:bg-green-500/20 rounded transition-all" title="复制 QQ 号"><CopyIcon /></button>
+                      <span className="font-mono">{m.qq_id}</span>
+                    </div>
+                    {m.qq_join_time && <><span className="text-gray-600">|</span><span>入群 <span className="text-gray-400">{formatDate(m.qq_join_time)}</span></span></>}
+                  </>
+                ) : (
+                  <span className="text-gray-600">未关联 QQ</span>
+                )}
+                {m.blacklist_date ? (
+                  <>
+                    <span className="text-gray-600">|</span>
+                    <button onClick={() => setEditingBlacklistDate({ type: 'member', id: m.player_id, value: m.blacklist_date })}
+                      className="inline-flex items-center gap-0.5 hover:text-red-300 transition-colors group/bd" title="点击修改拉黑时间">
+                      <span>拉黑 <span className="text-red-400/70 group-hover/bd:text-red-300 border-b border-dashed border-red-500/20 group-hover/bd:border-red-400/50">{formatDate(m.blacklist_date)}</span></span>
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setEditingBlacklistDate({ type: 'member', id: m.player_id, value: '' })}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-red-400/60" title="设置拉黑时间">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
-          )
-        })}
+          </div>
+        ))}
       </div>
     )
   }
@@ -1487,7 +1519,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 6h6" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M2 20c2 0 3-1 5-1s3 1 5 1 3-1 5-1 3 1 5 1" />
                 </svg>
-                舷号({hullMembers.length})
+                舷号({hullAssignments.filter(a => a.revoked_at === null).length})
               </button>
               <span className="text-gray-600">|</span>
               <button
@@ -1533,17 +1565,17 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
               {/* 列表排序切换 */}
               {activeTab === 'hull' && hullView === 'list' && (
                 <button
-                  onClick={() => setHullSort(prev => prev === 'date' ? 'number' : 'date')}
+                  onClick={() => setHullSort(prev => prev === 'date' ? 'number' : prev === 'number' ? 'qq_join' : 'date')}
                   className="flex items-center gap-1 px-1.5 py-0.5 text-[11px] text-gray-400 hover:text-white bg-gray-900/50 border border-gray-700/50 rounded transition-all"
-                  title={hullSort === 'date' ? '当前：按入群时间降序，点击切换为按序号升序' : '当前：按序号升序，点击切换为按入群时间降序'}
+                  title={hullSort === 'date' ? '当前：按授舷时间降序' : hullSort === 'number' ? '当前：按序号升序' : '当前：按入群时间降序'}
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    {hullSort === 'date'
-                      ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4 4m0 0l4-4m-4-4v12" />
-                      : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                    {hullSort === 'number'
+                      ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                      : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4 4m0 0l4-4m-4-4v12" />
                     }
                   </svg>
-                  {!isMobile && (hullSort === 'date' ? '入群时间' : '序号')}
+                  {!isMobile && (hullSort === 'date' ? '授舷时间' : hullSort === 'number' ? '序号' : '入群时间')}
                 </button>
               )}
               <button
@@ -1626,7 +1658,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
           </div>}
 
           {/* 内容区 */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
+          <div className={`flex-1 min-h-0 ${showGrid ? 'flex flex-col overflow-hidden' : 'overflow-y-auto custom-scrollbar'}`}>
             {showGrid ? (
               renderSeatGrid()
             ) : (
@@ -1805,20 +1837,27 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
                 删除 <span className="text-white font-medium">{confirmingHullDelete.memberName}</span> 的舷号{' '}
                 <span className="text-red-400 font-bold font-mono">{confirmingHullDelete.hullNumber}</span>，请选择处理方式：
               </p>
+              <input
+                type="text"
+                value={confirmingHullDelete.notes}
+                onChange={e => setConfirmingHullDelete({ ...confirmingHullDelete, notes: e.target.value })}
+                placeholder="收回备注（可选，如：转让/退队/违规）"
+                className="w-full text-xs bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 outline-none focus:border-amber-500 placeholder-gray-500 mb-3"
+              />
               <div className="space-y-2 mb-3">
                 <button
                   onClick={() => handleConfirmHullDelete(true)}
                   className="w-full px-3 py-2 text-xs text-left bg-gray-700 hover:bg-gray-600 text-white rounded border border-gray-500 transition-colors"
                 >
-                  <div className="font-medium text-amber-400 mb-0.5">保留历史记录</div>
-                  <div className="text-gray-400">标记为 [旧]{confirmingHullDelete.hullNumber}，保留在成员档案中</div>
+                  <div className="font-medium text-amber-400 mb-0.5">收回保留历史</div>
+                  <div className="text-gray-400">收回该舷号，保留授舷历史记录</div>
                 </button>
                 <button
                   onClick={() => handleConfirmHullDelete(false)}
                   className="w-full px-3 py-2 text-xs text-left bg-gray-700 hover:bg-gray-600 text-white rounded border border-gray-500 transition-colors"
                 >
-                  <div className="font-medium text-red-400 mb-0.5">删除历史记录</div>
-                  <div className="text-gray-400">完全移除舷号，不留记录</div>
+                  <div className="font-medium text-red-400 mb-0.5">彻底删除</div>
+                  <div className="text-gray-400">彻底删除该条授舷记录，不留历史</div>
                 </button>
               </div>
               <div className="flex justify-end">
@@ -2150,7 +2189,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
               <p className="text-xs text-gray-400 mb-3">
                 当前持有者：<span className="text-white">{transferringHull.oldName}</span>
                 <br />
-                <span className="text-amber-400/60">更迭后将标记为 [旧]{transferringHull.hullNumber}</span>
+                <span className="text-amber-400/60">更迭后当前持有者的授舷记录将被收回</span>
               </p>
               <div className="relative">
                 <div className="flex items-center gap-1.5 bg-gray-700/80 rounded border border-gray-600/50 px-2 py-1.5">
@@ -2182,7 +2221,10 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
                             <span className="text-[10px] text-gray-500 font-mono">{m.player_id}</span>
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {m.hull_number && <span className="text-[9px] text-cyan-400/70">{m.hull_number}</span>}
+                            {(() => {
+                              const activeHull = hullAssignments.find(a => a.player_id === m.player_id && a.revoked_at === null)
+                              return activeHull && <span className="text-[9px] text-cyan-400/70">{activeHull.hull_number}</span>
+                            })()}
                             {!m.active && <span className="text-[9px] text-red-400/70">已离队</span>}
                           </div>
                         </button>
@@ -2221,7 +2263,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
                   <span className="text-white font-medium">{confirmingTransfer.newName}</span>
                 </p>
                 <p className="text-amber-400/60">
-                  {confirmingTransfer.oldName} 将标记为 [旧]{confirmingTransfer.hullNumber}
+                  {confirmingTransfer.oldName} 的授舷记录将被收回
                 </p>
               </div>
               <div className="flex justify-end gap-2">
@@ -2269,12 +2311,11 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
               <div className="flex justify-between items-center">
                 <button
                   onClick={async () => {
-                    const result = await setHullDate(editingHullDate.playerId, null)
+                    const { assignmentId, field } = editingHullDate
+                    const result = await updateHullAssignment(assignmentId, { [field]: null })
                     if (result.success) {
-                      toast.success('授予日期已清除', { duration: 1500 })
-                      setMembers(prev => prev.map(m =>
-                        m.player_id === editingHullDate.playerId ? { ...m, hull_date: null } : m
-                      ))
+                      toast.success('日期已清除', { duration: 1500 })
+                      setHullAssignments(prev => prev.map(a => a.id === assignmentId ? { ...a, [field]: null } : a))
                     } else {
                       toast.error(`清除失败: ${result.error}`)
                     }
@@ -2292,7 +2333,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
                     取消
                   </button>
                   <button
-                    onClick={() => handleSaveHullDate(editingHullDate.playerId, editingHullDate.value)}
+                    onClick={() => handleSaveHullDate(editingHullDate.assignmentId, editingHullDate.field, editingHullDate.value)}
                     className="px-3 py-1.5 text-xs bg-cyan-600 text-white rounded hover:bg-cyan-500 transition-colors"
                   >
                     确认

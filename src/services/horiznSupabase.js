@@ -1088,46 +1088,66 @@ export async function getAllMembersForAdmin() {
   return data || []
 }
 
-/**
- * 设置成员舷号
- * @param {string} playerId - 玩家 ID
- * @param {string|null} hullNumber - 舷号（null 清除）
- * @returns {Promise<{success: boolean, error?: string}>}
- */
-export async function setHullNumber(playerId, hullNumber) {
+/** 获取全部舷号分配记录（含历史），用于座位图和列表视图 */
+export async function getHullOccupancy() {
   const supabase = assertSupabase()
-  const { data, error } = await supabase.rpc('horizn_set_hull_number', {
-    p_player_id: playerId,
-    p_hull_number: hullNumber
-  })
+  const { data, error } = await supabase.rpc('horizn_get_hull_occupancy')
   if (error) {
-    console.error('[horiznSupabase] setHullNumber failed:', error)
-    return { success: false, error: error.message }
+    console.error('[horiznSupabase] getHullOccupancy failed:', error)
+    throw error
   }
-  // RPC 返回 jsonb { success, error, ... }
-  if (data && !data.success) {
-    return { success: false, error: data.error || '未知错误' }
-  }
+  return data || []
+}
+
+/** 分配舷号（新建 horizn_hull_assignments 记录） */
+export async function assignHullNumber(playerId, hullNumber, notes) {
+  const supabase = assertSupabase()
+  const { data, error } = await supabase.rpc('horizn_assign_hull', {
+    p_player_id: playerId,
+    p_hull_number: hullNumber,
+    p_notes: notes ?? null
+  })
+  if (error) { console.error('[horiznSupabase] assignHullNumber failed:', error); return { success: false, error: error.message } }
+  if (data && !data.success) return { success: false, error: data.error || '未知错误' }
   return { success: true }
 }
 
-/**
- * 设置成员黑名单状态
- * @param {string} playerId - 玩家 ID
- * @param {boolean} isBlacklisted - 是否加入黑名单
- * @param {string} [note] - 备注
- * @returns {Promise<{success: boolean, error?: string}>}
- */
-export async function setHullDate(playerId, hullDate) {
+/** 收回舷号（软删除，revoked_at = now()，历史保留） */
+export async function revokeHullNumber(playerId, hullNumber) {
   const supabase = assertSupabase()
-  const { error } = await supabase
-    .from('horizn_members')
-    .update({ hull_date: hullDate })
-    .eq('player_id', playerId)
-  if (error) {
-    console.error('[horiznSupabase] setHullDate failed:', error)
-    return { success: false, error: error.message }
-  }
+  const { data, error } = await supabase.rpc('horizn_revoke_hull', {
+    p_player_id: playerId,
+    p_hull_number: hullNumber,
+    p_notes: null
+  })
+  if (error) { console.error('[horiznSupabase] revokeHullNumber failed:', error); return { success: false, error: error.message } }
+  if (data && !data.success) return { success: false, error: data.error || '未知错误' }
+  return { success: true }
+}
+
+/** 彻底删除舷号分配记录 */
+export async function hardDeleteHullAssignment(assignmentId) {
+  const supabase = assertSupabase()
+  const { data, error } = await supabase.rpc('horizn_hard_delete_hull', { p_assignment_id: assignmentId })
+  if (error) { console.error('[horiznSupabase] hardDeleteHullAssignment failed:', error); return { success: false, error: error.message } }
+  if (data && !data.success) return { success: false, error: data.error || '未知错误' }
+  return { success: true }
+}
+
+/** 修改舷号分配记录的授舷时间 / 收回时间 / 备注 */
+export async function updateHullAssignment(assignmentId, params) {
+  const supabase = assertSupabase()
+  const { data, error } = await supabase.rpc('horizn_update_hull_assignment', {
+    p_assignment_id:      assignmentId,
+    p_assigned_at:        params.assigned_at ?? null,
+    p_update_assigned_at: params.update_assigned_at ?? false,
+    p_revoked_at:         params.revoked_at ?? null,
+    p_update_revoked_at:  params.update_revoked_at ?? false,
+    p_notes:              params.notes ?? null,
+    p_update_notes:       params.update_notes ?? false,
+  })
+  if (error) { console.error('[horiznSupabase] updateHullAssignment failed:', error); return { success: false, error: error.message } }
+  if (data && !data.success) return { success: false, error: data.error || '未知错误' }
   return { success: true }
 }
 
@@ -1170,10 +1190,11 @@ export async function setMemberBlacklistDate(playerId, date) {
  */
 export async function transferHullNumber(oldPlayerId, newPlayerId, hullNumber) {
   const supabase = assertSupabase()
-  const { data, error } = await supabase.rpc('horizn_transfer_hull_number', {
+  const { data, error } = await supabase.rpc('horizn_transfer_hull', {
     p_old_player_id: oldPlayerId,
     p_new_player_id: newPlayerId,
-    p_hull_number: hullNumber
+    p_hull_number: hullNumber,
+    p_notes: null
   })
   if (error) {
     console.error('[horiznSupabase] transferHullNumber failed:', error)
