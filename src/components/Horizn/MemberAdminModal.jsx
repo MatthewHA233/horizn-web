@@ -163,6 +163,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
 
   // 外部黑名单
   const [elseBlacklist, setElseBlacklist] = useState([])
+  const [confirmDeleteElse, setConfirmDeleteElse] = useState(null) // { id, name }
   const [loadingElse, setLoadingElse] = useState(false)
   const [elseFormMode, setElseFormMode] = useState(null) // null | 'add' | id(string)
   const [elseFormData, setElseFormData] = useState({ name: '', player_id: '', qq_number: '', note: '' })
@@ -649,7 +650,10 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
     }
   }
 
-  const handleDeleteElse = async (id) => {
+  const handleDeleteElse = async () => {
+    if (!confirmDeleteElse) return
+    const { id } = confirmDeleteElse
+    setConfirmDeleteElse(null)
     const result = await deleteBlacklistElse(id)
     if (result.success) {
       toast.success('已删除', { duration: 1500 })
@@ -1497,6 +1501,19 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
 
   return (
     <>
+      {/* 外部黑名单删除确认弹窗 */}
+      {confirmDeleteElse && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60]">
+          <div className="bg-gray-800 border border-gray-600 rounded-xl p-5 w-72 shadow-2xl">
+            <p className="text-sm text-gray-200 mb-1">确认删除外部黑名单？</p>
+            <p className="text-xs text-red-400 mb-4 break-all">「{confirmDeleteElse.name}」</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmDeleteElse(null)} className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors">取消</button>
+              <button onClick={handleDeleteElse} className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors">确认删除</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-3">
         <div className={`bg-gray-800/95 backdrop-blur-xl rounded-xl border border-gray-700/50 shadow-2xl w-full overflow-hidden flex flex-col max-h-[90vh] ${showGrid ? 'max-w-lg' : 'max-w-lg'} ${isMobile ? 'select-none' : ''}`}>
           {/* 顶部装饰条 */}
@@ -1761,7 +1778,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
                                   编辑
                                 </button>
                                 <button
-                                  onClick={() => handleDeleteElse(entry.id)}
+                                  onClick={() => setConfirmDeleteElse({ id: entry.id, name: entry.name })}
                                   className="text-[10px] px-1 py-0.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
                                 >
                                   删除
