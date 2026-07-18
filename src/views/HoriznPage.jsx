@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ShieldCheck, Calendar, Search, X, Pin, RefreshCw, Fingerprint } from 'lucide-react'
+import { ShieldCheck, Calendar, Search, X, Pin, RefreshCw, Fingerprint, BarChart3 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import BarChartRace from '@/components/Horizn/BarChartRace'
 import CopyRankModal from '@/components/Horizn/CopyRankModal'
@@ -11,6 +11,8 @@ import KickReviewModal from '@/components/Horizn/KickReviewModal'
 import MemberEventsModal from '@/components/Horizn/MemberEventsModal'
 import MemberAdminModal from '@/components/Horizn/MemberAdminModal'
 import AdminLoginAuditModal from '@/components/Horizn/AdminLoginAuditModal'
+import ClanBattleView from '@/components/Horizn/ClanBattleView'
+import ClanBattleSummaryModal from '@/components/Horizn/ClanBattleSummaryModal'
 import { getHoriznAvailableMonths, buildHoriznTimelineFromBase, buildMonthlyBase, fetchDuckDBIncrement, fetchOSSSessions, cacheMonthData, getCachedMonthData } from '@/services/horiznSupabase'
 import '@/components/Layout/Sidebar.css'
 
@@ -59,6 +61,9 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
 
   // 超级管理员登录审计画像
   const [showAdminLoginAuditModal, setShowAdminLoginAuditModal] = useState(false)
+
+  // 联队战前 N 名命中汇总（普通管理员可用）
+  const [showClanBattleSummaryModal, setShowClanBattleSummaryModal] = useState(false)
 
   // 刷新状态
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -265,6 +270,11 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   const handleOpenAdminLoginAuditModal = () => {
     setShowAdminMenu(false)
     setShowAdminLoginAuditModal(true)
+  }
+
+  const handleOpenClanBattleSummaryModal = () => {
+    setShowAdminMenu(false)
+    setShowClanBattleSummaryModal(true)
   }
 
   // 刷新：从 DuckDB 获取增量数据，合并到当前 base
@@ -530,7 +540,8 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   // 动态构建 CSV 路径（useMemo 缓存，避免切换标签时重新创建导致组件重新挂载）
   const tabs = useMemo(() => [
     { id: 'weekly', name: '周活跃度', csvPath: `supabase-weekly-${yearMonth}` },
-    { id: 'season', name: '赛季活跃度', csvPath: `supabase-season-${yearMonth}` }
+    { id: 'season', name: '赛季活跃度', csvPath: `supabase-season-${yearMonth}` },
+    { id: 'clan', name: '联队战', csvPath: null }
   ], [yearMonth])
 
   const currentTab = tabs.find(tab => tab.id === activeTab)
@@ -562,7 +573,7 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
         }}
       />
       {/* 标签页导航 + 状态栏 */}
-      <div className="flex-shrink-0 border-b border-gray-800">
+      <div className="relative z-[100] flex-shrink-0 border-b border-gray-800 bg-gray-950/95 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between min-w-0">
             {/* 左侧：联队logo + 标签页 */}
@@ -574,12 +585,12 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
                 className="h-6 w-6 sm:h-8 sm:w-8 md:h-10 md:w-10 rounded-full object-cover flex-shrink-0"
               />
               {/* 标签页 */}
-              <div className="flex gap-0.5 sm:gap-1">
+              <div className="flex min-w-0 gap-0 sm:gap-1">
                 {tabs.map(tab => (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`px-3 py-2 sm:px-4 sm:py-3 md:px-6 md:py-4 text-xs sm:text-sm font-medium transition-colors ${
+                    className={`shrink-0 whitespace-nowrap px-2 py-2 sm:px-4 sm:py-3 md:px-6 md:py-4 text-[11px] sm:text-sm font-medium transition-colors ${
                       activeTab === tab.id
                         ? 'text-white border-b-2 border-blue-500'
                         : 'text-gray-400 hover:text-gray-200'
@@ -664,20 +675,22 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
             {/* 右侧：刷新 + 月份选择器 + 管理员标识 */}
             <div className="flex items-center gap-1 sm:gap-3 md:gap-4 text-[10px] sm:text-xs text-gray-400 pr-1 sm:pr-2 flex-shrink-0">
               {/* 刷新按钮 */}
-              <button
-                onClick={handleRefresh}
-                disabled={isRefreshing || !monthlyBase}
-                className={`flex items-center gap-1 px-1.5 py-1 rounded transition-colors ${
-                  isRefreshing
-                    ? 'text-blue-400 cursor-wait'
-                    : monthlyBase
-                      ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-800 cursor-pointer'
-                      : 'text-gray-600 cursor-not-allowed'
-                }`}
-                title="从 DuckDB 增量刷新"
-              >
-                <RefreshCw className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              </button>
+              {activeTab !== 'clan' && (
+                <button
+                  onClick={handleRefresh}
+                  disabled={isRefreshing || !monthlyBase}
+                  className={`flex items-center gap-1 px-1.5 py-1 rounded transition-colors ${
+                    isRefreshing
+                      ? 'text-blue-400 cursor-wait'
+                      : monthlyBase
+                        ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-800 cursor-pointer'
+                        : 'text-gray-600 cursor-not-allowed'
+                  }`}
+                  title="从 DuckDB 增量刷新"
+                >
+                  <RefreshCw className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                </button>
+              )}
 
               {/* 月份选择器 */}
               <div className="relative">
@@ -790,6 +803,13 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
                             </svg>
                             <span>入离队细目</span>
                           </button>
+                          <button
+                            onClick={handleOpenClanBattleSummaryModal}
+                            className="w-full px-3 py-1.5 text-left text-xs text-cyan-300 hover:bg-gray-700 transition-colors flex items-center gap-2"
+                          >
+                            <BarChart3 className="w-3.5 h-3.5" />
+                            <span>联队战前 N 汇总</span>
+                          </button>
                           {isSuperAdmin && (
                             <>
                               <button
@@ -864,15 +884,19 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
 
       {/* 内容区 - 填满剩余空间，滚动由 BarChartRace 内部处理 */}
       <div className="flex-1 min-h-0">
-        <BarChartRace
-          key={currentTab.csvPath}
-          csvPath={currentTab.csvPath}
-          onDataUpdate={handleDataUpdate}
-          showValues={isAdmin}
-          externalFrameIndex={manualFrameIndex}
-          preloadedData={preloadedData[activeTab]}
-          highlightPlayerId={pinnedPlayerId}
-        />
+        {activeTab === 'clan' ? (
+          <ClanBattleView yearMonth={yearMonth} />
+        ) : (
+          <BarChartRace
+            key={currentTab.csvPath}
+            csvPath={currentTab.csvPath}
+            onDataUpdate={handleDataUpdate}
+            showValues={isAdmin}
+            externalFrameIndex={manualFrameIndex}
+            preloadedData={preloadedData[activeTab]}
+            highlightPlayerId={pinnedPlayerId}
+          />
+        )}
       </div>
 
       {/* 复制名单弹窗 */}
@@ -926,6 +950,14 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
         show={showAdminLoginAuditModal}
         onClose={() => setShowAdminLoginAuditModal(false)}
         isMobile={isMobile}
+      />
+
+      {/* 联队战前 N 名命中汇总（普通管理员可用） */}
+      <ClanBattleSummaryModal
+        show={showClanBattleSummaryModal}
+        onClose={() => setShowClanBattleSummaryModal(false)}
+        isMobile={isMobile}
+        yearMonth={yearMonth}
       />
 
       {/* 手机端搜索弹出框 */}

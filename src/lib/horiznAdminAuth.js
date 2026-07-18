@@ -129,7 +129,19 @@ export function isSameOriginRequest(request) {
   if (!origin) return true
 
   try {
-    return new URL(origin).origin === new URL(request.url).origin
+    const originUrl = new URL(origin)
+    const requestUrl = new URL(request.url)
+    const host = request.headers.get('host')?.split(',')[0]?.trim()
+    const forwardedProtocol = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+    const protocol = forwardedProtocol ? `${forwardedProtocol}:` : requestUrl.protocol
+
+    // next dev 监听 0.0.0.0 时 request.url 可能仍是 localhost；真实浏览器来源应与 Host 一致。
+    if (host) {
+      const hostOrigin = new URL(`${protocol}//${host}`)
+      return originUrl.origin === hostOrigin.origin
+    }
+
+    return originUrl.origin === requestUrl.origin
   } catch {
     return false
   }
