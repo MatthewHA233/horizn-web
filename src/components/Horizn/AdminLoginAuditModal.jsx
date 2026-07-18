@@ -123,9 +123,6 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
               <Fingerprint className="h-4 w-4 text-violet-400" />
               管理员登录画像
-              <span className="rounded border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-medium text-violet-300">
-                仅超级管理员
-              </span>
             </div>
             <p className="mt-1 text-[10px] text-gray-500">成功登录记录 · 自动保留 {data.summary.retentionDays} 天</p>
           </div>
@@ -160,7 +157,7 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
         <div className="flex shrink-0 items-center gap-2 border-b border-white/5 px-4 py-2.5">
           <div className="flex rounded-md border border-white/5 bg-black/20 p-0.5 text-[10px]">
             <button onClick={() => setView('profiles')} className={`rounded px-2 py-1 transition-colors ${view === 'profiles' ? 'bg-violet-500/20 text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}>IP 画像</button>
-            <button onClick={() => setView('events')} className={`rounded px-2 py-1 transition-colors ${view === 'events' ? 'bg-violet-500/20 text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}>登录流水</button>
+            <button onClick={() => setView('events')} className={`rounded px-2 py-1 transition-colors ${view === 'events' ? 'bg-violet-500/20 text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}>登录记录</button>
           </div>
           <div className="relative min-w-0 flex-1">
             <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-600" />
@@ -188,7 +185,7 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
             ) : (
               <div className="grid gap-2 md:grid-cols-2">
                 {filteredProfiles.map(profile => (
-                  <article key={profile.ipAddress} className="rounded-lg border border-white/5 bg-white/[0.02] p-3 transition-colors hover:border-violet-500/20">
+                  <article key={profile.ipAddress} className="min-w-0 overflow-hidden rounded-lg border border-white/5 bg-white/[0.02] p-3 transition-colors hover:border-violet-500/20">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <button onClick={() => copyIp(profile.ipAddress)} className="group flex max-w-full items-center gap-1.5 font-mono text-xs font-semibold text-cyan-300">
@@ -209,17 +206,17 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
 
                     <div className="mt-3 space-y-1.5 text-[10px] text-gray-400">
                       <div className="flex items-start gap-1.5"><MapPin className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" /><span>{profile.locations.join(' / ') || '位置未知'}</span></div>
-                      <div className="flex items-start gap-1.5"><Laptop className="mt-0.5 h-3 w-3 shrink-0 text-blue-400" /><span>{[...profile.browsers, ...profile.operatingSystems, ...profile.deviceTypes.map(deviceLabel)].join(' · ') || '设备未知'}</span></div>
+                      <div className="flex min-w-0 items-start gap-1.5"><Laptop className="mt-0.5 h-3 w-3 shrink-0 text-blue-400" /><span className="min-w-0 break-words">{[...profile.browsers, ...profile.operatingSystems, ...profile.deviceTypes.map(deviceLabel)].join(' · ') || '设备未知'}</span></div>
                       <div className="flex items-center gap-1.5"><Clock3 className="h-3 w-3 shrink-0 text-violet-400" /><span>首次 {formatTime(profile.firstSeen)} · 最近 {formatTime(profile.lastSeen)}</span></div>
                     </div>
 
-                    {profile.lastUserAgent && <p title={profile.lastUserAgent} className="mt-2 truncate border-t border-white/5 pt-2 font-mono text-[9px] text-gray-700">{profile.lastUserAgent}</p>}
+                    {profile.lastUserAgent && <p title={profile.lastUserAgent} className="mt-2 whitespace-normal break-all border-t border-white/5 pt-2 font-mono text-[9px] leading-relaxed text-gray-700">{profile.lastUserAgent}</p>}
                   </article>
                 ))}
               </div>
             )
           ) : filteredEvents.length === 0 ? (
-            <div className="flex h-48 items-center justify-center text-xs text-gray-600">暂无匹配的登录流水</div>
+            <div className="flex h-48 items-center justify-center text-xs text-gray-600">暂无匹配的登录记录</div>
           ) : (
             <div className="overflow-hidden rounded-lg border border-white/5">
               {filteredEvents.map((event, index) => (
