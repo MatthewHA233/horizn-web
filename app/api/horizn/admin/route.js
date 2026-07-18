@@ -8,6 +8,7 @@ import {
   isSameOriginRequest,
 } from '@/lib/horiznAdminAuth'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
+import { buildAdminLoginProfiles } from '@/lib/adminLoginAudit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -55,7 +56,7 @@ async function rpc(supabase, name, params) {
 
 export async function GET(request) {
   const resource = new URL(request.url).searchParams.get('resource')
-  const requiredRole = ['members', 'hull', 'blacklist-else'].includes(resource)
+  const requiredRole = ['members', 'hull', 'blacklist-else', 'login-audit'].includes(resource)
     ? SUPER_ADMIN_ROLE
     : ADMIN_ROLE
   const auth = requireSession(request, requiredRole)
@@ -103,6 +104,29 @@ export async function GET(request) {
         .maybeSingle()
       if (error) throw error
       return NextResponse.json({ data: data?.rule_config || null }, { headers: { 'Cache-Control': 'no-store' } })
+    }
+    if (resource === 'login-audit') {
+      const { data, error, count } = await supabase
+        .from('horizn_admin_login_audit')
+        .select('id, logged_in_at, role, ip_address, country_code, region, city, user_agent, accept_language, browser, operating_system, device_type', { count: 'exact' })
+        .order('logged_in_at', { ascending: false })
+        .limit(1000)
+      if (error) throw error
+
+      const rows = data || []
+      const profiles = buildAdminLoginProfiles(rows)
+      return NextResponse.json({
+        data: {
+          summary: {
+            totalLogins: count || rows.length,
+            uniqueIps: profiles.length,
+            superLogins: rows.filter(row => row.role === SUPER_ADMIN_ROLE).length,
+            retentionDays: 180,
+          },
+          profiles,
+          recentEvents: rows.slice(0, 100),
+        },
+      }, { headers: { 'Cache-Control': 'no-store' } })
     }
 
     return fail('未知管理资源', 404)

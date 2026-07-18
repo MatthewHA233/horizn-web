@@ -6,6 +6,7 @@ import {
   isSameOriginRequest,
   setAdminSessionCookie,
 } from '@/lib/horiznAdminAuth'
+import { recordSuccessfulAdminLogin } from '@/lib/adminLoginAudit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -48,6 +49,7 @@ export async function POST(request) {
     }
 
     attempts.delete(ip)
+    await recordSuccessfulAdminLogin(request, role)
     const response = NextResponse.json({ authenticated: true, role })
     setAdminSessionCookie(response, createAdminSessionToken(role))
     response.headers.set('Cache-Control', 'no-store')

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ShieldCheck, Calendar, Search, X, Pin, RefreshCw } from 'lucide-react'
+import { ShieldCheck, Calendar, Search, X, Pin, RefreshCw, Fingerprint } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import BarChartRace from '@/components/Horizn/BarChartRace'
 import CopyRankModal from '@/components/Horizn/CopyRankModal'
@@ -10,6 +10,7 @@ import CheckListModal from '@/components/Horizn/CheckListModal'
 import KickReviewModal from '@/components/Horizn/KickReviewModal'
 import MemberEventsModal from '@/components/Horizn/MemberEventsModal'
 import MemberAdminModal from '@/components/Horizn/MemberAdminModal'
+import AdminLoginAuditModal from '@/components/Horizn/AdminLoginAuditModal'
 import { getHoriznAvailableMonths, buildHoriznTimelineFromBase, buildMonthlyBase, fetchDuckDBIncrement, fetchOSSSessions, cacheMonthData, getCachedMonthData } from '@/services/horiznSupabase'
 import '@/components/Layout/Sidebar.css'
 
@@ -55,6 +56,9 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
 
   // 舷号与黑名单管理弹窗
   const [showMemberAdminModal, setShowMemberAdminModal] = useState(false)
+
+  // 超级管理员登录审计画像
+  const [showAdminLoginAuditModal, setShowAdminLoginAuditModal] = useState(false)
 
   // 刷新状态
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -256,6 +260,11 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   const handleOpenMemberAdminModal = () => {
     setShowAdminMenu(false)
     setShowMemberAdminModal(true)
+  }
+
+  const handleOpenAdminLoginAuditModal = () => {
+    setShowAdminMenu(false)
+    setShowAdminLoginAuditModal(true)
   }
 
   // 刷新：从 DuckDB 获取增量数据，合并到当前 base
@@ -782,15 +791,24 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
                             <span>入离队细目</span>
                           </button>
                           {isSuperAdmin && (
-                            <button
-                              onClick={handleOpenMemberAdminModal}
-                              className="w-full px-3 py-1.5 text-left text-xs text-emerald-400 hover:bg-gray-700 transition-colors flex items-center gap-2"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
-                              </svg>
-                              <span>舷号和黑名单</span>
-                            </button>
+                            <>
+                              <button
+                                onClick={handleOpenMemberAdminModal}
+                                className="w-full px-3 py-1.5 text-left text-xs text-emerald-400 hover:bg-gray-700 transition-colors flex items-center gap-2"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+                                </svg>
+                                <span>舷号和黑名单</span>
+                              </button>
+                              <button
+                                onClick={handleOpenAdminLoginAuditModal}
+                                className="w-full px-3 py-1.5 text-left text-xs text-violet-400 hover:bg-gray-700 transition-colors flex items-center gap-2"
+                              >
+                                <Fingerprint className="w-3.5 h-3.5" />
+                                <span>管理员登录画像</span>
+                              </button>
+                            </>
                           )}
                           <div className="border-t border-gray-700"></div>
                           <button
@@ -900,6 +918,13 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
       <MemberAdminModal
         show={showMemberAdminModal}
         onClose={() => setShowMemberAdminModal(false)}
+        isMobile={isMobile}
+      />
+
+      {/* 超级管理员登录审计画像 */}
+      <AdminLoginAuditModal
+        show={showAdminLoginAuditModal}
+        onClose={() => setShowAdminLoginAuditModal(false)}
         isMobile={isMobile}
       />
 
