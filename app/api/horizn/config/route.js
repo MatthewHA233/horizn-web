@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import OSS from 'ali-oss'
+import { getAdminSession, hasRequiredRole, isSameOriginRequest } from '@/lib/horiznAdminAuth'
 
 // OSS 客户端配置
 function getOSSClient() {
@@ -54,6 +55,13 @@ export async function GET() {
  * 写入 OSS 上的 horizn 配置
  */
 export async function POST(request) {
+  if (!isSameOriginRequest(request)) {
+    return NextResponse.json({ error: '请求来源无效' }, { status: 403 })
+  }
+  if (!hasRequiredRole(getAdminSession(request))) {
+    return NextResponse.json({ error: '登录已过期，请重新登录' }, { status: 401 })
+  }
+
   try {
     const config = await request.json()
 

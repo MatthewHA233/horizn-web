@@ -12,17 +12,20 @@ export default function HoriznAdminLogin() {
   const inputRef = useRef(null)
   const router = useRouter()
 
-  const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_HORIZN_ADMIN_PASSWORD || 'admin123'
-  const SUPER_PASSWORD = process.env.NEXT_PUBLIC_HORIZN_SUPER_PASSWORD || ''
-
   useEffect(() => {
     document.title = 'HORIZN 管理员登录'
     return () => { document.title = 'HORIZN' }
   }, [])
 
   useEffect(() => {
-    const isAuthenticated = localStorage.getItem('horizn_admin_auth') === 'true'
-    if (isAuthenticated) router.push('/')
+    let cancelled = false
+    fetch('/api/horizn/auth/session', { cache: 'no-store' })
+      .then(response => response.json())
+      .then(session => {
+        if (!cancelled && session.authenticated) router.replace('/')
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [router])
 
   const triggerShake = () => {
@@ -30,30 +33,28 @@ export default function HoriznAdminLogin() {
     setTimeout(() => setShake(false), 450)
   }
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault()
     setError('')
     setIsLoading(true)
 
-    setTimeout(() => {
-      if (SUPER_PASSWORD && password === SUPER_PASSWORD) {
-        // 超级管理员：可访问舷号与黑名单
-        localStorage.setItem('horizn_admin_auth', 'true')
-        localStorage.setItem('horizn_super_auth', 'true')
-        router.push('/')
-      } else if (password === ADMIN_PASSWORD) {
-        // 普通管理员
-        localStorage.setItem('horizn_admin_auth', 'true')
-        localStorage.removeItem('horizn_super_auth')
-        router.push('/')
-      } else {
-        setError('密码错误')
-        setPassword('')
-        setIsLoading(false)
-        triggerShake()
-        setTimeout(() => inputRef.current?.focus(), 50)
-      }
-    }, 380)
+    try {
+      const response = await fetch('/api/horizn/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || '登录失败')
+      router.replace('/')
+      router.refresh()
+    } catch (err) {
+      setError(err.message || '登录失败')
+      setPassword('')
+      setIsLoading(false)
+      triggerShake()
+      setTimeout(() => inputRef.current?.focus(), 50)
+    }
   }
 
   return (

@@ -9,6 +9,27 @@ let cachedAvailableMonths = null
 let cachedAvailableMonthsAt = 0
 const monthlyBaseCache = new Map()
 
+async function adminApi(path = '', options = {}) {
+  const response = await fetch(`/api/horizn/admin${path}`, {
+    cache: 'no-store',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  })
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(result.error || '管理员会话已失效')
+  return result
+}
+
+async function adminAction(action, payload = {}) {
+  return adminApi('', {
+    method: 'POST',
+    body: JSON.stringify({ action, ...payload }),
+  })
+}
+
 const normalizeIsoDate = (dateValue) => {
   if (!dateValue) return ''
   return String(dateValue).replace(/-/g, '')
@@ -681,19 +702,11 @@ export async function getMonthlyMembershipEvents(year, month) {
  * @returns {Promise<{success: boolean, error?: string}>}
  */
 export async function markEventKicked(eventId, isKicked) {
-  const supabase = assertSupabase()
-
-  const { error } = await supabase
-    .from('horizn_membership_events')
-    .update({ is_kicked: isKicked })
-    .eq('id', eventId)
-
-  if (error) {
-    console.error('[horiznSupabase] Failed to mark event kicked:', error)
+  try {
+    return await adminAction('mark-event-kicked', { eventId, isKicked })
+  } catch (error) {
     return { success: false, error: error.message }
   }
-
-  return { success: true }
 }
 
 // ===================================================
@@ -1000,22 +1013,12 @@ export async function getNewcomerDailyCheck(year, month, startDay = 1, cutoffHou
  * @returns {Promise<Object|null>} 规则配置
  */
 export async function getMonthlyRules(year, month) {
-  const supabase = assertSupabase()
-
-  const { data, error } = await supabase
-    .from('horizn_monthly_rules')
-    .select('rule_config')
-    .eq('year', year)
-    .eq('month', month)
-    .eq('rule_type', 'assessment')
-    .eq('rule_name', 'monthly_rules')
-    .single()
-
-  if (error || !data) {
+  try {
+    const result = await adminApi(`?resource=monthly-rules&year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`)
+    return result.data
+  } catch {
     return null
   }
-
-  return data.rule_config
 }
 
 /**
@@ -1026,28 +1029,12 @@ export async function getMonthlyRules(year, month) {
  * @returns {Promise<boolean>} 是否成功
  */
 export async function saveMonthlyRules(year, month, config) {
-  const supabase = assertSupabase()
-
-  const { error } = await supabase
-    .from('horizn_monthly_rules')
-    .upsert({
-      year,
-      month,
-      rule_type: 'assessment',
-      rule_name: 'monthly_rules',
-      rule_config: config,
-      is_active: true,
-      updated_at: new Date().toISOString()
-    }, {
-      onConflict: 'year,month,rule_type,rule_name'
-    })
-
-  if (error) {
-    console.error('[horiznSupabase] 保存月度规则失败:', error)
+  try {
+    const result = await adminAction('save-monthly-rules', { year, month, config })
+    return result.success === true
+  } catch {
     return false
   }
-
-  return true
 }
 
 /**
@@ -1055,16 +1042,13 @@ export async function saveMonthlyRules(year, month, config) {
  * @returns {Promise<Array>} QQ 成员列表
  */
 export async function getQQMembers() {
-  const supabase = assertSupabase()
-
-  const { data, error } = await supabase.rpc('horizn_get_qq_members')
-
-  if (error) {
+  try {
+    const result = await adminApi('?resource=qq-members')
+    return result.data || []
+  } catch (error) {
     console.error('[horiznSupabase] 获取 QQ 成员列表失败:', error)
     return []
   }
-
-  return data || []
 }
 
 /**
@@ -1077,108 +1061,54 @@ export async function getQQMembers() {
  * @returns {Promise<Array>} 成员列表
  */
 export async function getAllMembersForAdmin() {
-  const supabase = assertSupabase()
-
-  // 专用轻量 RPC：服务端关联名字，一次返回全部
-  const { data, error } = await supabase.rpc('horizn_get_members_admin')
-  if (error) {
-    console.error('[horiznSupabase] getAllMembersForAdmin failed:', error)
-    throw error
-  }
-  return data || []
+  const result = await adminApi('?resource=members')
+  return result.data || []
 }
 
 /** 获取全部舷号分配记录（含历史），用于座位图和列表视图 */
 export async function getHullOccupancy() {
-  const supabase = assertSupabase()
-  const { data, error } = await supabase.rpc('horizn_get_hull_occupancy')
-  if (error) {
-    console.error('[horiznSupabase] getHullOccupancy failed:', error)
-    throw error
-  }
-  return data || []
+  const result = await adminApi('?resource=hull')
+  return result.data || []
 }
 
 /** 分配舷号（新建 horizn_hull_assignments 记录） */
 export async function assignHullNumber(playerId, hullNumber, notes) {
-  const supabase = assertSupabase()
-  const { data, error } = await supabase.rpc('horizn_assign_hull', {
-    p_player_id: playerId,
-    p_hull_number: hullNumber,
-    p_notes: notes ?? null
-  })
-  if (error) { console.error('[horiznSupabase] assignHullNumber failed:', error); return { success: false, error: error.message } }
-  if (data && !data.success) return { success: false, error: data.error || '未知错误' }
-  return { success: true }
+  try {
+    return await adminAction('assign-hull', { playerId, hullNumber, notes })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 /** 收回舷号（软删除，revoked_at = now()，历史保留） */
 export async function revokeHullNumber(playerId, hullNumber) {
-  const supabase = assertSupabase()
-  const { data, error } = await supabase.rpc('horizn_revoke_hull', {
-    p_player_id: playerId,
-    p_hull_number: hullNumber,
-    p_notes: null
-  })
-  if (error) { console.error('[horiznSupabase] revokeHullNumber failed:', error); return { success: false, error: error.message } }
-  if (data && !data.success) return { success: false, error: data.error || '未知错误' }
-  return { success: true }
+  try {
+    return await adminAction('revoke-hull', { playerId, hullNumber })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 /** 彻底删除舷号分配记录 */
 export async function hardDeleteHullAssignment(assignmentId) {
-  const supabase = assertSupabase()
-  const { data, error } = await supabase.rpc('horizn_hard_delete_hull', { p_assignment_id: assignmentId })
-  if (error) { console.error('[horiznSupabase] hardDeleteHullAssignment failed:', error); return { success: false, error: error.message } }
-  if (data && !data.success) return { success: false, error: data.error || '未知错误' }
-  return { success: true }
+  try {
+    return await adminAction('hard-delete-hull', { assignmentId })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 /** 修改舷号分配记录的授舷时间 / 收回时间 / 备注 */
 export async function updateHullAssignment(assignmentId, params) {
-  const supabase = assertSupabase()
-  const { data, error } = await supabase.rpc('horizn_update_hull_assignment', {
-    p_assignment_id:      assignmentId,
-    p_assigned_at:        params.assigned_at ?? null,
-    p_update_assigned_at: params.update_assigned_at ?? false,
-    p_revoked_at:         params.revoked_at ?? null,
-    p_update_revoked_at:  params.update_revoked_at ?? false,
-    p_notes:              params.notes ?? null,
-    p_update_notes:       params.update_notes ?? false,
-  })
-  if (error) { console.error('[horiznSupabase] updateHullAssignment failed:', error); return { success: false, error: error.message } }
-  if (data && !data.success) return { success: false, error: data.error || '未知错误' }
-  return { success: true }
+  try {
+    return await adminAction('update-hull', { assignmentId, params })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 export async function setMemberBlacklist(playerId, isBlacklisted, note) {
-  const supabase = assertSupabase()
-  const { data, error } = await supabase.rpc('horizn_set_member_blacklist', {
-    p_player_id: playerId,
-    p_is_blacklisted: isBlacklisted,
-    p_note: note || null
-  })
-  if (error) {
-    console.error('[horiznSupabase] setMemberBlacklist failed:', error)
-    return { success: false, error: error.message }
-  }
-  if (data && !data.success) {
-    return { success: false, error: data.error || '未知错误' }
-  }
-  return { success: true }
+  try {
+    return await adminAction('set-member-blacklist', { playerId, isBlacklisted, note })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 export async function setMemberBlacklistDate(playerId, date) {
-  const supabase = assertSupabase()
-  const { error } = await supabase
-    .from('horizn_members')
-    .update({ blacklist_date: date || null })
-    .eq('player_id', playerId)
-  if (error) {
-    console.error('[horiznSupabase] setMemberBlacklistDate failed:', error)
-    return { success: false, error: error.message }
-  }
-  return { success: true }
+  try {
+    return await adminAction('set-member-blacklist-date', { playerId, date })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 /**
@@ -1189,21 +1119,9 @@ export async function setMemberBlacklistDate(playerId, date) {
  * @returns {Promise<{success: boolean, error?: string}>}
  */
 export async function transferHullNumber(oldPlayerId, newPlayerId, hullNumber) {
-  const supabase = assertSupabase()
-  const { data, error } = await supabase.rpc('horizn_transfer_hull', {
-    p_old_player_id: oldPlayerId,
-    p_new_player_id: newPlayerId,
-    p_hull_number: hullNumber,
-    p_notes: null
-  })
-  if (error) {
-    console.error('[horiznSupabase] transferHullNumber failed:', error)
-    return { success: false, error: error.message }
-  }
-  if (data && !data.success) {
-    return { success: false, error: data.error || '未知错误' }
-  }
-  return { success: true }
+  try {
+    return await adminAction('transfer-hull', { oldPlayerId, newPlayerId, hullNumber })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 /**
@@ -1233,61 +1151,32 @@ export function subscribeToMemberChanges(callback) {
 
 /** 获取全部外部黑名单记录 */
 export async function getBlacklistElse() {
-  const supabase = assertSupabase()
-  const { data, error } = await supabase
-    .from('horizn_blacklist_else')
-    .select('*')
-    .order('blacklist_date', { ascending: false })
-  if (error) {
-    console.error('[horiznSupabase] getBlacklistElse failed:', error)
-    throw error
-  }
-  return data || []
+  const result = await adminApi('?resource=blacklist-else')
+  return result.data || []
 }
 
 /** 新增外部黑名单记录 */
 export async function addBlacklistElse({ name, player_id, qq_number, note }) {
-  const supabase = assertSupabase()
-  const { data, error } = await supabase
-    .from('horizn_blacklist_else')
-    .insert({ name, player_id: player_id || null, qq_number: qq_number || null, note: note || null })
-    .select()
-    .single()
-  if (error) {
-    console.error('[horiznSupabase] addBlacklistElse failed:', error)
-    return { success: false, error: error.message }
-  }
-  return { success: true, data }
+  try {
+    return await adminAction('add-blacklist-else', { entry: { name, player_id, qq_number, note } })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 /** 更新外部黑名单记录 */
 export async function updateBlacklistElse(id, { name, player_id, qq_number, note, blacklist_date }) {
-  const supabase = assertSupabase()
-  const payload = { name, player_id: player_id || null, qq_number: qq_number || null, note: note || null }
-  if (blacklist_date !== undefined) payload.blacklist_date = blacklist_date || null
-  const { error } = await supabase
-    .from('horizn_blacklist_else')
-    .update(payload)
-    .eq('id', id)
-  if (error) {
-    console.error('[horiznSupabase] updateBlacklistElse failed:', error)
-    return { success: false, error: error.message }
-  }
-  return { success: true }
+  try {
+    return await adminAction('update-blacklist-else', {
+      id,
+      entry: { name, player_id, qq_number, note, blacklist_date },
+    })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 /** 删除外部黑名单记录 */
 export async function deleteBlacklistElse(id) {
-  const supabase = assertSupabase()
-  const { error } = await supabase
-    .from('horizn_blacklist_else')
-    .delete()
-    .eq('id', id)
-  if (error) {
-    console.error('[horiznSupabase] deleteBlacklistElse failed:', error)
-    return { success: false, error: error.message }
-  }
-  return { success: true }
+  try {
+    return await adminAction('delete-blacklist-else', { id })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 /**
@@ -1297,35 +1186,9 @@ export async function deleteBlacklistElse(id) {
  * @param {string|null} leftAt - 退群时间 ISO 日期
  */
 export async function manualBindQQ(playerId, qqId, leftAt) {
-  const supabase = assertSupabase()
-
-  // 1. 获取 member_id
-  const { data: memberData, error: memberErr } = await supabase
-    .from('horizn_members')
-    .select('id')
-    .eq('player_id', playerId)
-    .single()
-
-  if (memberErr || !memberData) {
-    return { success: false, error: '成员不存在' }
-  }
-
-  // 2. upsert qq_accounts
-  const { error } = await supabase
-    .from('horizn_qq_accounts')
-    .upsert({
-      qq_id: qqId,
-      member_id: memberData.id,
-      left_at: leftAt || null,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'qq_id' })
-
-  if (error) {
-    console.error('[horiznSupabase] manualBindQQ failed:', error)
-    return { success: false, error: error.message }
-  }
-
-  return { success: true }
+  try {
+    return await adminAction('manual-bind-qq', { playerId, qqId, leftAt })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 /**
@@ -1334,18 +1197,9 @@ export async function manualBindQQ(playerId, qqId, leftAt) {
  * @param {string|null} leftAt
  */
 export async function updateQQLeftAt(qqId, leftAt) {
-  const supabase = assertSupabase()
-  const { error } = await supabase
-    .from('horizn_qq_accounts')
-    .update({ left_at: leftAt || null, updated_at: new Date().toISOString() })
-    .eq('qq_id', qqId)
-
-  if (error) {
-    console.error('[horiznSupabase] updateQQLeftAt failed:', error)
-    return { success: false, error: error.message }
-  }
-
-  return { success: true }
+  try {
+    return await adminAction('update-qq-left-at', { qqId, leftAt })
+  } catch (error) { return { success: false, error: error.message } }
 }
 
 export async function sendGroupMessage(message) {

@@ -96,10 +96,23 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // 检查是否有管理员权限（客户端初始化）
+  // 管理员权限由服务端 HttpOnly 会话提供，客户端无法自行伪造
   useEffect(() => {
-    setIsAdmin(localStorage.getItem('horizn_admin_auth') === 'true')
-    setIsSuperAdmin(localStorage.getItem('horizn_super_auth') === 'true')
+    let cancelled = false
+    fetch('/api/horizn/auth/session', { cache: 'no-store' })
+      .then(response => response.json())
+      .then(session => {
+        if (cancelled) return
+        setIsAdmin(session.authenticated === true)
+        setIsSuperAdmin(session.role === 'super')
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIsAdmin(false)
+          setIsSuperAdmin(false)
+        }
+      })
+    return () => { cancelled = true }
   }, [])
 
   // 从 localStorage 读取上次定位的玩家
@@ -191,9 +204,10 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   }, [pinnedPlayerId, monthlyBase?.idMapping])
 
   // 退出管理员
-  const handleLogout = () => {
-    localStorage.removeItem('horizn_admin_auth')
-    localStorage.removeItem('horizn_super_auth')
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/horizn/auth/logout', { method: 'POST' })
+    } catch {}
     setIsAdmin(false)
     setIsSuperAdmin(false)
     setShowAdminMenu(false)

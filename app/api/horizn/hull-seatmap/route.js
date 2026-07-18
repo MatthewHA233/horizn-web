@@ -6,15 +6,14 @@ export const dynamic = 'force-dynamic'
  * 用 Puppeteer + Tailwind CDN 截图，class 名直接从 MemberAdminModal 复制，
  * 保证和管理界面完全一致。
  */
-import { createClient } from '@supabase/supabase-js'
+import { safeEqualSecret } from '@/lib/horiznAdminAuth'
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 function checkAuth(request) {
-  const token = process.env.HORIZN_BOT_TOKEN
-  if (!token) return true
-  const { searchParams } = new URL(request.url)
-  const h = request.headers.get('authorization')?.replace('Bearer ', '')
-  return searchParams.get('token') === token || h === token
+  const token = process.env.HORIZN_BOT_TOKEN || ''
+  const supplied = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
+  return safeEqualSecret(supplied, token)
 }
 
 // ─── 工具函数（直接从 MemberAdminModal 复制）────────────────────────────────
@@ -380,10 +379,7 @@ export async function GET(request) {
   const view = searchParams.get('view') || 'grid'
 
   try {
-    const sb = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    )
+    const sb = getSupabaseAdmin()
 
     if (view === 'grid' || view === 'list') {
       const { data: assignments, error: assignErr } = await sb.rpc('horizn_get_hull_occupancy')

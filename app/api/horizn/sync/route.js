@@ -1,17 +1,11 @@
 export const dynamic = 'force-dynamic'
-import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import OSS from 'ali-oss'
-
-// Supabase 客户端
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+import { safeEqualSecret } from '@/lib/horiznAdminAuth'
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 
 function getSupabase() {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing Supabase environment variables')
-  }
-  return createClient(supabaseUrl, supabaseAnonKey)
+  return getSupabaseAdmin()
 }
 
 // OSS 客户端
@@ -62,13 +56,14 @@ async function uploadToOSS(client, path, data) {
 }
 
 export async function POST(request) {
-  // 可选的 API 密钥验证（由 Python 采集脚本调用）
-  const syncSecret = process.env.HORIZN_SYNC_SECRET
-  if (syncSecret) {
-    const authHeader = request.headers.get('authorization')
-    if (authHeader !== `Bearer ${syncSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  // Python 采集脚本必须携带服务端密钥；缺失配置时拒绝服务而不是放行。
+  const syncSecret = process.env.HORIZN_SYNC_SECRET || ''
+  if (!syncSecret) {
+    return NextResponse.json({ error: 'Sync authentication is not configured' }, { status: 503 })
+  }
+  const suppliedSecret = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
+  if (!safeEqualSecret(suppliedSecret, syncSecret)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const { searchParams } = new URL(request.url)
