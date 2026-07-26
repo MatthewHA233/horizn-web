@@ -8,7 +8,8 @@ import {
   isSameOriginRequest,
 } from '@/lib/horiznAdminAuth'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
-import { buildAdminLoginProfiles } from '@/lib/adminLoginAudit'
+import { buildAdminLoginProfiles, filterPublicAdminLoginRows } from '@/lib/adminLoginAudit'
+import { adminLoginLocationKey } from '@/lib/adminLoginLocation'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -26,6 +27,7 @@ const SUPER_ACTIONS = new Set([
   'delete-blacklist-else',
   'manual-bind-qq',
   'update-qq-left-at',
+  'claim-admin-login-location',
 ])
 
 function unauthorized() {
@@ -106,25 +108,50 @@ export async function GET(request) {
       return NextResponse.json({ data: data?.rule_config || null }, { headers: { 'Cache-Control': 'no-store' } })
     }
     if (resource === 'login-audit') {
-      const { data, error, count } = await supabase
-        .from('horizn_admin_login_audit')
-        .select('id, logged_in_at, role, ip_address, country_code, region, city, user_agent, accept_language, browser, operating_system, device_type', { count: 'exact' })
-        .order('logged_in_at', { ascending: false })
-        .limit(1000)
-      if (error) throw error
+      const [auditResult, claimsResult] = await Promise.all([
+        supabase
+          .from('horizn_admin_login_audit')
+          .select('id, logged_in_at, role, ip_address, country_code, region, city, user_agent, accept_language, browser, operating_system, device_type')
+          .order('logged_in_at', { ascending: false })
+          .limit(1000),
+        supabase
+          .from('horizn_admin_login_identity_claims')
+          .select('location_key, identity_name, location_label, updated_at'),
+      ])
+      if (auditResult.error) throw auditResult.error
+      if (claimsResult.error) throw claimsResult.error
 
-      const rows = data || []
-      const profiles = buildAdminLoginProfiles(rows)
+      const rows = filterPublicAdminLoginRows(auditResult.data || [])
+      const claimsByLocation = new Map(
+        (claimsResult.data || []).map(claim => [claim.location_key, claim]),
+      )
+      const profiles = buildAdminLoginProfiles(rows).map(profile => ({
+        ...profile,
+        identityName: claimsByLocation.get(profile.locationKey)?.identity_name || null,
+        identityUpdatedAt: claimsByLocation.get(profile.locationKey)?.updated_at || null,
+      }))
+      const knownLocationKey = row => {
+        const key = adminLoginLocationKey(row)
+        return key === 'unknown' ? null : key
+      }
+      const loginRegions = new Set(rows.map(knownLocationKey).filter(Boolean))
+      const superRegions = new Set(
+        rows.filter(row => row.role === SUPER_ADMIN_ROLE).map(knownLocationKey).filter(Boolean),
+      )
       return NextResponse.json({
         data: {
           summary: {
-            totalLogins: count || rows.length,
-            uniqueIps: profiles.length,
+            totalLogins: rows.length,
+            uniqueIps: new Set(rows.map(row => row.ip_address)).size,
             superLogins: rows.filter(row => row.role === SUPER_ADMIN_ROLE).length,
-            retentionDays: 180,
+            loginRegions: loginRegions.size,
+            superAdminRegions: superRegions.size,
           },
           profiles,
-          recentEvents: rows.slice(0, 100),
+          recentEvents: rows.slice(0, 100).map(row => ({
+            ...row,
+            identityName: claimsByLocation.get(adminLoginLocationKey(row))?.identity_name || null,
+          })),
         },
       }, { headers: { 'Cache-Control': 'no-store' } })
     }
@@ -294,6 +321,43 @@ export async function POST(request) {
           .eq('qq_id', body.qqId)
         if (error) throw error
         result = { success: true }
+        break
+      }
+      case 'claim-admin-login-location': {
+        const locationKey = typeof body.locationKey === 'string' ? body.locationKey.trim() : ''
+        const identityName = typeof body.identityName === 'string'
+          ? body.identityName.replace(/[\u0000-\u001f\u007f]/g, '').trim()
+          : ''
+        const locationLabel = typeof body.locationLabel === 'string'
+          ? body.locationLabel.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 160)
+          : null
+
+        if (locationKey === 'unknown' || locationKey.length < 3 || locationKey.length > 255) {
+          return fail('地区画像标识无效')
+        }
+        if (identityName.length > 40) return fail('身份名称最多 40 个字符')
+
+        if (!identityName) {
+          const { error } = await supabase
+            .from('horizn_admin_login_identity_claims')
+            .delete()
+            .eq('location_key', locationKey)
+          if (error) throw error
+          result = { success: true, data: null }
+        } else {
+          const { data, error } = await supabase
+            .from('horizn_admin_login_identity_claims')
+            .upsert({
+              location_key: locationKey,
+              identity_name: identityName,
+              location_label: locationLabel || null,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'location_key' })
+            .select('location_key, identity_name, location_label, updated_at')
+            .single()
+          if (error) throw error
+          result = { success: true, data }
+        }
         break
       }
       default:

@@ -1,21 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Check,
   Clock3,
   Copy,
   Fingerprint,
   Globe2,
   Laptop,
   MapPin,
+  Pencil,
   RefreshCw,
   Search,
   ShieldCheck,
   Smartphone,
+  Trash2,
+  UserRound,
   X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { adminLoginLocationKey, adminLoginLocationLabel } from '@/lib/adminLoginLocation'
 
 const EMPTY_DATA = {
-  summary: { totalLogins: 0, uniqueIps: 0, superLogins: 0, retentionDays: 180 },
+  summary: {
+    totalLogins: 0,
+    uniqueIps: 0,
+    superLogins: 0,
+    loginRegions: 0,
+    superAdminRegions: 0,
+  },
   profiles: [],
   recentEvents: [],
 }
@@ -40,16 +51,15 @@ function deviceLabel(device) {
   return ({ desktop: '桌面端', mobile: '手机', tablet: '平板', bot: '自动化' })[device] || device
 }
 
-function locationLabel(row) {
-  return [row.city, row.region, row.country_code].filter(Boolean).join(' · ') || '位置未知'
-}
-
 export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
   const [data, setData] = useState(EMPTY_DATA)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [view, setView] = useState('profiles')
+  const [editingLocation, setEditingLocation] = useState(null)
+  const [claimDraft, setClaimDraft] = useState('')
+  const [claimSaving, setClaimSaving] = useState(false)
 
   const loadAudit = useCallback(async (signal) => {
     setLoading(true)
@@ -80,8 +90,9 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
     const keyword = query.trim().toLowerCase()
     if (!keyword) return data.profiles
     return data.profiles.filter(profile => [
-      profile.ipAddress,
-      ...profile.locations,
+      profile.locationLabel,
+      profile.identityName,
+      ...profile.ipAddresses,
       ...profile.browsers,
       ...profile.operatingSystems,
       ...profile.deviceTypes.map(deviceLabel),
@@ -111,6 +122,53 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
     }
   }
 
+  const editClaim = (profile) => {
+    setEditingLocation(profile.locationKey)
+    setClaimDraft(profile.identityName || '')
+  }
+
+  const saveClaim = async (profile, requestedName = claimDraft) => {
+    if (claimSaving) return
+    const identityName = requestedName.trim()
+    setClaimSaving(true)
+    try {
+      const response = await fetch('/api/horizn/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'claim-admin-login-location',
+          locationKey: profile.locationKey,
+          locationLabel: profile.locationLabel,
+          identityName,
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok || result.success === false) throw new Error(result.error || '身份认领失败')
+
+      setData(current => ({
+        ...current,
+        profiles: current.profiles.map(item => (
+          item.locationKey === profile.locationKey
+            ? { ...item, identityName: identityName || null }
+            : item
+        )),
+        recentEvents: current.recentEvents.map(event => (
+          profile.locationKey === adminLoginLocationKey(event)
+            ? { ...event, identityName: identityName || null }
+            : event
+        )),
+      }))
+      setEditingLocation(null)
+      setClaimDraft('')
+      toast.success(identityName ? `已标记为 ${identityName}` : '已取消身份认领')
+      await loadAudit()
+    } catch (err) {
+      toast.error(err.message || '身份认领失败')
+    } finally {
+      setClaimSaving(false)
+    }
+  }
+
   if (!show) return null
 
   return (
@@ -124,18 +182,18 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
               <Fingerprint className="h-4 w-4 text-violet-400" />
               管理员登录画像
             </div>
-            <p className="mt-1 text-[10px] text-gray-500">成功登录记录 · 自动保留 {data.summary.retentionDays} 天</p>
+            <p className="mt-1 text-[10px] text-gray-300">成功登录记录 · 永久保留</p>
           </div>
           <div className="flex items-center gap-1">
             <button
               onClick={() => loadAudit()}
               disabled={loading}
-              className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-40"
+              className="rounded-md p-1.5 text-gray-300 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-40"
               title="刷新"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <button onClick={onClose} className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-white/5 hover:text-white">
+            <button onClick={onClose} className="rounded-md p-1.5 text-gray-300 transition-colors hover:bg-white/5 hover:text-white">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -143,12 +201,12 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
 
         <div className="grid shrink-0 grid-cols-3 gap-2 border-b border-white/5 px-4 py-3">
           {[
-            { label: '成功登录', value: data.summary.totalLogins, icon: ShieldCheck, color: 'text-cyan-400' },
-            { label: '独立 IP', value: data.summary.uniqueIps, icon: Globe2, color: 'text-violet-400' },
-            { label: '超级登录', value: data.summary.superLogins, icon: Fingerprint, color: 'text-amber-400' },
+            { label: '登录地区', value: data.summary.loginRegions, icon: MapPin, color: 'text-cyan-400' },
+            { label: '登录次数', value: data.summary.totalLogins, icon: ShieldCheck, color: 'text-violet-400' },
+            { label: '超级管理员地区', value: data.summary.superAdminRegions, icon: Fingerprint, color: 'text-amber-400' },
           ].map(({ label, value, icon: Icon, color }) => (
             <div key={label} className="rounded-lg border border-white/5 bg-white/[0.025] px-3 py-2">
-              <div className="flex items-center gap-1.5 text-[10px] text-gray-500"><Icon className={`h-3 w-3 ${color}`} />{label}</div>
+              <div className="flex items-center gap-1.5 text-[10px] text-gray-300"><Icon className={`h-3 w-3 ${color}`} />{label}</div>
               <div className="mt-1 font-mono text-lg font-semibold tabular-nums text-gray-100">{value}</div>
             </div>
           ))}
@@ -156,16 +214,16 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
 
         <div className="flex shrink-0 items-center gap-2 border-b border-white/5 px-4 py-2.5">
           <div className="flex rounded-md border border-white/5 bg-black/20 p-0.5 text-[10px]">
-            <button onClick={() => setView('profiles')} className={`rounded px-2 py-1 transition-colors ${view === 'profiles' ? 'bg-violet-500/20 text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}>IP 画像</button>
-            <button onClick={() => setView('events')} className={`rounded px-2 py-1 transition-colors ${view === 'events' ? 'bg-violet-500/20 text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}>登录记录</button>
+            <button onClick={() => setView('profiles')} className={`rounded px-2 py-1 transition-colors ${view === 'profiles' ? 'bg-violet-500/20 text-violet-200' : 'text-gray-300 hover:text-white'}`}>地区画像</button>
+            <button onClick={() => setView('events')} className={`rounded px-2 py-1 transition-colors ${view === 'events' ? 'bg-violet-500/20 text-violet-200' : 'text-gray-300 hover:text-white'}`}>登录记录</button>
           </div>
           <div className="relative min-w-0 flex-1">
-            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-600" />
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
             <input
               value={query}
               onChange={event => setQuery(event.target.value)}
-              placeholder="搜索 IP、地区、浏览器或系统"
-              className="w-full rounded-md border border-white/5 bg-black/20 py-1.5 pl-7 pr-2 text-[11px] text-gray-200 outline-none placeholder:text-gray-600 focus:border-violet-500/40"
+              placeholder="搜索身份、IP、地区、浏览器或系统"
+              className="w-full rounded-md border border-white/10 bg-black/20 py-1.5 pl-7 pr-2 text-[11px] text-gray-100 caret-violet-300 outline-none placeholder:text-gray-400 focus:border-violet-400/60"
             />
           </div>
         </div>
@@ -177,21 +235,21 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
             <div className="flex h-48 flex-col items-center justify-center gap-2 text-center">
               <Fingerprint className="h-8 w-8 text-red-400/60" />
               <p className="text-xs text-red-300">{error}</p>
-              <button onClick={() => loadAudit()} className="text-[10px] text-gray-500 underline hover:text-white">重新加载</button>
+              <button onClick={() => loadAudit()} className="text-[10px] text-gray-300 underline hover:text-white">重新加载</button>
             </div>
           ) : view === 'profiles' ? (
             filteredProfiles.length === 0 ? (
-              <div className="flex h-48 items-center justify-center text-xs text-gray-600">暂无匹配的登录画像</div>
+              <div className="flex h-48 items-center justify-center text-xs text-gray-400">暂无匹配的登录画像</div>
             ) : (
               <div className="grid gap-2 md:grid-cols-2">
                 {filteredProfiles.map(profile => (
-                  <article key={profile.ipAddress} className="min-w-0 overflow-hidden rounded-lg border border-white/5 bg-white/[0.02] p-3 transition-colors hover:border-violet-500/20">
+                  <article key={profile.locationKey} className="min-w-0 overflow-hidden rounded-lg border border-white/5 bg-white/[0.02] p-3 transition-colors hover:border-violet-500/20">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <button onClick={() => copyIp(profile.ipAddress)} className="group flex max-w-full items-center gap-1.5 font-mono text-xs font-semibold text-cyan-300">
-                          <span className="truncate">{profile.ipAddress}</span>
-                          <Copy className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-70" />
-                        </button>
+                        <div className="flex max-w-full items-center gap-1.5 text-xs font-semibold text-cyan-300">
+                          <MapPin className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{profile.locationLabel}</span>
+                        </div>
                         <div className="mt-1 flex flex-wrap gap-1">
                           {profile.roles.map(role => (
                             <span key={role} className={`rounded px-1.5 py-0.5 text-[9px] ${role === 'super' ? 'bg-amber-500/10 text-amber-300' : 'bg-blue-500/10 text-blue-300'}`}>{roleLabel(role)}</span>
@@ -200,23 +258,103 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
                       </div>
                       <div className="text-right">
                         <div className="font-mono text-lg font-semibold text-white">{profile.loginCount}</div>
-                        <div className="text-[9px] text-gray-600">次登录</div>
+                        <div className="text-[9px] text-gray-400">次登录</div>
                       </div>
                     </div>
 
-                    <div className="mt-3 space-y-1.5 text-[10px] text-gray-400">
-                      <div className="flex items-start gap-1.5"><MapPin className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" /><span>{profile.locations.join(' / ') || '位置未知'}</span></div>
+                    {editingLocation === profile.locationKey ? (
+                      <div className="mt-2 flex items-center gap-1.5 rounded-md border border-violet-500/20 bg-violet-500/[0.06] p-1.5">
+                        <UserRound className="ml-1 h-3.5 w-3.5 shrink-0 text-violet-300" />
+                        <input
+                          autoFocus
+                          value={claimDraft}
+                          maxLength={40}
+                          onChange={event => setClaimDraft(event.target.value)}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter') saveClaim(profile)
+                            if (event.key === 'Escape') setEditingLocation(null)
+                          }}
+                          placeholder="输入身份，如 CHanGO"
+                          className="min-w-0 flex-1 bg-transparent px-1 py-1 text-[11px] text-white caret-violet-300 outline-none placeholder:text-gray-400"
+                        />
+                        <button
+                          onClick={() => saveClaim(profile)}
+                          disabled={claimSaving || !claimDraft.trim()}
+                          title="保存身份"
+                          className="rounded p-1.5 text-emerald-300 transition-colors hover:bg-emerald-500/10 disabled:opacity-30"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                        {profile.identityName && (
+                          <button
+                            onClick={() => saveClaim(profile, '')}
+                            disabled={claimSaving}
+                            title="取消认领"
+                            className="rounded p-1.5 text-red-300 transition-colors hover:bg-red-500/10 disabled:opacity-30"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setEditingLocation(null)}
+                          disabled={claimSaving}
+                          title="取消编辑"
+                          className="rounded p-1.5 text-gray-300 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-30"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        {profile.identityName ? (
+                          <div className="flex min-w-0 items-center gap-1.5 rounded-full border border-amber-400/20 bg-amber-400/[0.08] px-2 py-1 text-[10px] font-medium text-amber-200">
+                            <UserRound className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{profile.identityName}</span>
+                          </div>
+                        ) : (
+                          <span className="text-[9px] text-gray-300">身份未认领</span>
+                        )}
+                        <button
+                          onClick={() => editClaim(profile)}
+                          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[9px] text-gray-300 transition-colors hover:bg-violet-500/10 hover:text-violet-200"
+                        >
+                          <Pencil className="h-2.5 w-2.5" />
+                          {profile.identityName ? '修改' : '认领身份'}
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="mt-3 space-y-1.5 text-[10px] text-gray-300">
+                      <div className="flex items-start gap-1.5">
+                        <Globe2 className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
+                        <div className="flex min-w-0 flex-wrap gap-1">
+                          {profile.ipAddresses.slice(0, 6).map(ip => (
+                            <button
+                              key={ip}
+                              onClick={() => copyIp(ip)}
+                              title="复制 IP"
+                              className="group flex max-w-full items-center gap-1 rounded border border-white/15 px-1.5 py-0.5 font-mono text-[9px] text-gray-300 transition-colors hover:border-cyan-400/40 hover:text-cyan-200"
+                            >
+                              <span className="truncate">{ip}</span>
+                              <Copy className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-70" />
+                            </button>
+                          ))}
+                          {profile.ipAddresses.length > 6 && (
+                            <span className="px-1 py-0.5 font-mono text-[9px] text-gray-400">+{profile.ipAddresses.length - 6}</span>
+                          )}
+                        </div>
+                      </div>
                       <div className="flex min-w-0 items-start gap-1.5"><Laptop className="mt-0.5 h-3 w-3 shrink-0 text-blue-400" /><span className="min-w-0 break-words">{[...profile.browsers, ...profile.operatingSystems, ...profile.deviceTypes.map(deviceLabel)].join(' · ') || '设备未知'}</span></div>
                       <div className="flex items-center gap-1.5"><Clock3 className="h-3 w-3 shrink-0 text-violet-400" /><span>首次 {formatTime(profile.firstSeen)} · 最近 {formatTime(profile.lastSeen)}</span></div>
                     </div>
 
-                    {profile.lastUserAgent && <p title={profile.lastUserAgent} className="mt-2 whitespace-normal break-all border-t border-white/5 pt-2 font-mono text-[9px] leading-relaxed text-gray-700">{profile.lastUserAgent}</p>}
+                    {profile.lastUserAgent && <p title={profile.lastUserAgent} className="mt-2 whitespace-normal break-all border-t border-white/10 pt-2 font-mono text-[9px] leading-relaxed text-gray-400">{profile.lastUserAgent}</p>}
                   </article>
                 ))}
               </div>
             )
           ) : filteredEvents.length === 0 ? (
-            <div className="flex h-48 items-center justify-center text-xs text-gray-600">暂无匹配的登录记录</div>
+            <div className="flex h-48 items-center justify-center text-xs text-gray-400">暂无匹配的登录记录</div>
           ) : (
             <div className="overflow-hidden rounded-lg border border-white/5">
               {filteredEvents.map((event, index) => (
@@ -225,13 +363,14 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-mono text-[11px] font-medium text-cyan-300">{event.ip_address || '未知 IP'}</span>
                       <span className={`rounded px-1 py-0.5 text-[8px] ${event.role === 'super' ? 'bg-amber-500/10 text-amber-300' : 'bg-blue-500/10 text-blue-300'}`}>{roleLabel(event.role)}</span>
+                      {event.identityName && <span className="rounded bg-violet-500/10 px-1 py-0.5 text-[8px] text-violet-300">{event.identityName}</span>}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-gray-500">
-                      <span className="flex items-center gap-1"><MapPin className="h-2.5 w-2.5" />{locationLabel(event)}</span>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-gray-300">
+                      <span className="flex items-center gap-1"><MapPin className="h-2.5 w-2.5" />{adminLoginLocationLabel(event)}</span>
                       <span className="flex items-center gap-1">{event.device_type === 'mobile' ? <Smartphone className="h-2.5 w-2.5" /> : <Laptop className="h-2.5 w-2.5" />}{event.browser || '未知'} · {event.operating_system || '未知'}</span>
                     </div>
                   </div>
-                  <time className="shrink-0 font-mono text-[9px] text-gray-600">{formatTime(event.logged_in_at)}</time>
+                  <time className="shrink-0 font-mono text-[9px] text-gray-400">{formatTime(event.logged_in_at)}</time>
                 </div>
               ))}
             </div>

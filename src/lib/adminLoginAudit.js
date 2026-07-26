@@ -2,8 +2,14 @@ import 'server-only'
 
 import { getRequestIp } from '@/lib/horiznAdminAuth'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
+import { adminLoginLocationKey, adminLoginLocationLabel } from '@/lib/adminLoginLocation'
+import {
+  filterPublicAdminLoginRows,
+  isPublicAdminAuditIp,
+  normalizeAdminAuditIp,
+} from '@/lib/adminAuditIp'
 
-const RETENTION_DAYS = 180
+export { filterPublicAdminLoginRows } from '@/lib/adminAuditIp'
 
 function cleanHeader(value, maxLength = 255) {
   if (!value) return null
@@ -18,14 +24,6 @@ function decodeGeoHeader(value) {
   } catch {
     return cleaned
   }
-}
-
-function normalizeIp(value) {
-  if (!value || value === 'unknown') return null
-  const trimmed = value.trim()
-  if (trimmed.startsWith('[')) return trimmed.match(/^\[([^\]]+)\]/)?.[1] || null
-  if (/^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(trimmed)) return trimmed.replace(/:\d+$/, '')
-  return trimmed.slice(0, 64)
 }
 
 function parseUserAgent(userAgent = '') {
@@ -57,12 +55,15 @@ function parseUserAgent(userAgent = '') {
 
 export async function recordSuccessfulAdminLogin(request, role) {
   try {
+    const ipAddress = normalizeAdminAuditIp(getRequestIp(request))
+    if (!isPublicAdminAuditIp(ipAddress)) return
+
     const userAgent = cleanHeader(request.headers.get('user-agent'), 1024)
     const parsed = parseUserAgent(userAgent || '')
     const supabase = getSupabaseAdmin()
     const { error } = await supabase.from('horizn_admin_login_audit').insert({
       role,
-      ip_address: normalizeIp(getRequestIp(request)),
+      ip_address: ipAddress,
       country_code: cleanHeader(request.headers.get('x-vercel-ip-country'), 2)?.toUpperCase() || null,
       region: decodeGeoHeader(request.headers.get('x-vercel-ip-country-region')),
       city: decodeGeoHeader(request.headers.get('x-vercel-ip-city')),
@@ -74,13 +75,6 @@ export async function recordSuccessfulAdminLogin(request, role) {
       request_id: cleanHeader(request.headers.get('x-vercel-id'), 255),
     })
     if (error) throw error
-
-    const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()
-    const { error: cleanupError } = await supabase
-      .from('horizn_admin_login_audit')
-      .delete()
-      .lt('logged_in_at', cutoff)
-    if (cleanupError) console.warn('[admin-audit] 清理过期登录记录失败:', cleanupError.message)
   } catch (error) {
     // 审计系统故障不能阻断管理员登录，但必须留下服务端错误日志。
     console.error('[admin-audit] 记录登录画像失败:', error.message)
@@ -90,17 +84,18 @@ export async function recordSuccessfulAdminLogin(request, role) {
 export function buildAdminLoginProfiles(rows = []) {
   const profiles = new Map()
 
-  for (const row of rows) {
-    const key = row.ip_address || '未知 IP'
+  for (const row of filterPublicAdminLoginRows(rows)) {
+    const key = adminLoginLocationKey(row)
     let profile = profiles.get(key)
     if (!profile) {
       profile = {
-        ipAddress: key,
+        locationKey: key,
+        locationLabel: adminLoginLocationLabel(row),
         loginCount: 0,
         firstSeen: row.logged_in_at,
         lastSeen: row.logged_in_at,
+        ipAddresses: new Set(),
         roles: new Set(),
-        locations: new Set(),
         browsers: new Set(),
         operatingSystems: new Set(),
         deviceTypes: new Set(),
@@ -111,14 +106,13 @@ export function buildAdminLoginProfiles(rows = []) {
     }
 
     profile.loginCount += 1
+    profile.ipAddresses.add(row.ip_address)
     if (new Date(row.logged_in_at) < new Date(profile.firstSeen)) profile.firstSeen = row.logged_in_at
     if (new Date(row.logged_in_at) > new Date(profile.lastSeen)) {
       profile.lastSeen = row.logged_in_at
       profile.lastUserAgent = row.user_agent || profile.lastUserAgent
     }
     if (row.role) profile.roles.add(row.role)
-    const location = [row.city, row.region, row.country_code].filter(Boolean).join(' · ')
-    if (location) profile.locations.add(location)
     if (row.browser) profile.browsers.add(row.browser)
     if (row.operating_system) profile.operatingSystems.add(row.operating_system)
     if (row.device_type) profile.deviceTypes.add(row.device_type)
@@ -128,8 +122,8 @@ export function buildAdminLoginProfiles(rows = []) {
   return Array.from(profiles.values())
     .map(profile => ({
       ...profile,
+      ipAddresses: Array.from(profile.ipAddresses).sort(),
       roles: Array.from(profile.roles),
-      locations: Array.from(profile.locations),
       browsers: Array.from(profile.browsers),
       operatingSystems: Array.from(profile.operatingSystems),
       deviceTypes: Array.from(profile.deviceTypes),
