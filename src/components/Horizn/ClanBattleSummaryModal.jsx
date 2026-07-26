@@ -18,6 +18,11 @@ const TIME_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
   minute: '2-digit',
   hour12: false,
 })
+const UTC_DAY_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'UTC',
+  month: 'numeric',
+  day: 'numeric',
+})
 
 function asUtcDate(value) {
   if (!value) return new Date(0)
@@ -26,6 +31,22 @@ function asUtcDate(value) {
 
 function clampTopN(value) {
   return Math.min(100, Math.max(1, Math.round(Number(value) || 1)))
+}
+
+function utcWeekStart(value) {
+  const date = asUtcDate(value)
+  const daysAfterMonday = (date.getUTCDay() + 6) % 7
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysAfterMonday)
+}
+
+function adjacentMonthLabel(session, yearMonth) {
+  if (!session.yearMonth || session.yearMonth === yearMonth) return ''
+  return session.yearMonth < yearMonth ? '上月' : '下月'
+}
+
+function sessionNumberLabel(session, yearMonth) {
+  const adjacentLabel = adjacentMonthLabel(session, yearMonth)
+  return adjacentLabel ? `${adjacentLabel[0]}${session.number}` : String(session.number)
 }
 
 function downloadCsv(rows, selectedCount, topN) {
@@ -84,7 +105,11 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
       if (!response.ok) throw new Error(result.error || '联队战汇总读取失败')
       const nextData = { sessions: result.sessions || [], rankings: result.rankings || {} }
       setData(nextData)
-      setSelected(new Set(nextData.sessions.filter(session => session.playerCount > 0).map(session => session.id)))
+      setSelected(new Set(
+        nextData.sessions
+          .filter(session => session.playerCount > 0 && (!session.yearMonth || session.yearMonth === yearMonth))
+          .map(session => session.id),
+      ))
     } catch (loadError) {
       if (loadError.name !== 'AbortError') setError(loadError.message || '联队战汇总读取失败')
     } finally {
@@ -105,6 +130,29 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
     [data.sessions],
   )
 
+  const monthDataSessions = useMemo(
+    () => dataSessions.filter(session => !session.yearMonth || session.yearMonth === yearMonth),
+    [dataSessions, yearMonth],
+  )
+
+  const weekGroups = useMemo(() => {
+    const groups = new Map()
+    for (const session of dataSessions) {
+      const weekStart = utcWeekStart(session.startTime)
+      const current = groups.get(weekStart) || { weekStart, sessionIds: [], crossesMonth: false }
+      current.sessionIds.push(session.id)
+      current.crossesMonth ||= Boolean(adjacentMonthLabel(session, yearMonth))
+      groups.set(weekStart, current)
+    }
+    return Array.from(groups.values())
+      .sort((a, b) => a.weekStart - b.weekStart)
+      .map((group, index) => ({
+        ...group,
+        weekNumber: index + 1,
+        weekEnd: group.weekStart + 6 * 24 * 60 * 60 * 1000,
+      }))
+  }, [dataSessions, yearMonth])
+
   const stats = useMemo(() => {
     const counts = new Map()
     const selectedSessions = data.sessions.filter(session => selected.has(session.id))
@@ -117,14 +165,14 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
           sessionNos: [],
         }
         current.hits += 1
-        current.sessionNos.push(session.number)
+        current.sessionNos.push(sessionNumberLabel(session, yearMonth))
         current.name = player.name
         counts.set(player.playerId, current)
       }
     }
     const rows = Array.from(counts.values()).sort((a, b) => b.hits - a.hits || a.name.localeCompare(b.name))
     return { rows, selectedCount: selectedSessions.length }
-  }, [data, selected, topN])
+  }, [data, selected, topN, yearMonth])
 
   const toggleSession = session => {
     if (session.playerCount === 0) return
@@ -134,6 +182,10 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
       else next.add(session.id)
       return next
     })
+  }
+
+  const selectWeek = week => {
+    setSelected(new Set(week.sessionIds))
   }
 
   const copyWeights = async () => {
@@ -158,14 +210,53 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
           场次选择 <span className="font-mono text-cyan-200">{stats.selectedCount}</span><span className="text-gray-300">/{dataSessions.length}</span>
         </div>
         <div className="flex gap-1">
-          <button onClick={() => setSelected(new Set(dataSessions.map(session => session.id)))} className="rounded border border-white/15 px-2 py-1 text-[10px] text-gray-100 hover:border-cyan-300/50">全选</button>
+          <button onClick={() => setSelected(new Set(monthDataSessions.map(session => session.id)))} className="rounded border border-white/15 px-2 py-1 text-[10px] text-gray-100 hover:border-cyan-300/50">本月</button>
+          <button onClick={() => setSelected(new Set(dataSessions.map(session => session.id)))} className="rounded border border-white/15 px-2 py-1 text-[10px] text-gray-100 hover:border-cyan-300/50">全部</button>
           <button onClick={() => setSelected(new Set())} className="rounded border border-white/15 px-2 py-1 text-[10px] text-gray-100 hover:border-cyan-300/50">清空</button>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-white/10 bg-black/10 px-3 py-1.5">
+        <span className="flex w-8 shrink-0 flex-col text-center leading-tight">
+          <span className="text-[9px] font-medium text-gray-200">只选周</span>
+          <span className="font-mono text-[8px] text-gray-400">UTC+0</span>
+        </span>
+        <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {weekGroups.map(week => {
+            const selectedInWeek = week.sessionIds.filter(id => selected.has(id)).length
+            const includesWholeWeek = week.sessionIds.length > 0 && selectedInWeek === week.sessionIds.length
+            const isOnlyWeek = includesWholeWeek && stats.selectedCount === week.sessionIds.length
+            const isPartial = selectedInWeek > 0 && !includesWholeWeek
+            const weekRange = `${UTC_DAY_FORMATTER.format(new Date(week.weekStart))}–${UTC_DAY_FORMATTER.format(new Date(week.weekEnd))}`
+            return (
+              <button
+                key={week.weekStart}
+                onClick={() => selectWeek(week)}
+                disabled={week.sessionIds.length === 0}
+                aria-pressed={isOnlyWeek}
+                title={`只选择第${week.weekNumber}周（UTC+0 ${weekRange}，${week.sessionIds.length}场${week.crossesMonth ? '，含相邻月份' : ''}）`}
+                className={`relative flex h-8 min-w-[48px] shrink-0 flex-col items-center justify-center rounded border px-1 transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+                  isOnlyWeek
+                    ? 'border-cyan-200 bg-cyan-300/20 text-cyan-50'
+                    : includesWholeWeek
+                      ? 'border-cyan-400/30 bg-cyan-400/[0.07] text-cyan-200'
+                      : isPartial
+                        ? 'border-amber-300/35 bg-amber-300/[0.06] text-amber-200'
+                        : 'border-white/15 text-gray-300 hover:border-cyan-300/45 hover:text-white'
+                }`}
+              >
+                {week.crossesMonth && <span className="absolute right-1 top-1 h-1 w-1 rounded-full bg-amber-300" aria-label="包含相邻月份" />}
+                <span className="text-[10px] font-medium leading-none">第{week.weekNumber}周</span>
+                <span className="mt-0.5 font-mono text-[8px] leading-none opacity-75">{selectedInWeek}/{week.sessionIds.length}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
         {data.sessions.map(session => {
           const enabled = session.playerCount > 0
           const active = selected.has(session.id)
+          const adjacentLabel = adjacentMonthLabel(session, yearMonth)
           return (
             <button
               key={session.id}
@@ -178,6 +269,7 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
               <span className={`relative z-10 pt-0.5 text-right font-mono text-[10px] ${active ? 'font-semibold text-cyan-200' : 'text-gray-300'}`}>#{session.number}</span>
               <span className="relative z-10 min-w-0">
                 <span className="flex flex-wrap gap-x-1.5 text-[10px] text-gray-100">
+                  {adjacentLabel && <span className="rounded border border-amber-300/30 bg-amber-300/[0.08] px-1 text-[8px] text-amber-200">{adjacentLabel}</span>}
                   <span>{DATE_FORMATTER.format(asUtcDate(session.startTime))}</span>
                   <span className="font-mono font-semibold text-white">{TIME_FORMATTER.format(asUtcDate(session.startTime))}</span>
                 </span>
@@ -211,7 +303,7 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
               <span className="relative text-center font-mono text-xs font-bold text-cyan-200 sm:text-sm">{row.hits}</span>
               <span className="relative text-right font-mono text-[10px] text-gray-100 sm:text-xs">{rate.toFixed(0)}%</span>
               <span className="relative hidden flex-wrap gap-1 overflow-hidden sm:flex">
-                {row.sessionNos.map(number => <span key={number} className="rounded border border-white/15 px-1 font-mono text-[9px] text-gray-200">{number}</span>)}
+                {row.sessionNos.map((number, numberIndex) => <span key={`${number}-${numberIndex}`} className="rounded border border-white/15 px-1 font-mono text-[9px] text-gray-200">{number}</span>)}
               </span>
             </div>
           )
@@ -224,29 +316,34 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-2 sm:p-4">
       <section className={`flex w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-cyan-400/25 bg-[#090e17] shadow-2xl ${isMobile ? 'h-[96dvh]' : 'h-[88vh]'}`}>
         <header className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-2.5 sm:px-4 sm:py-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-semibold text-white"><BarChart3 className="h-4 w-4 text-cyan-300" />联队战前 N 名汇总</div>
-            <p className="mt-0.5 text-[10px] text-gray-300">{monthLabel} · 统计进入各场贡献前 N 名的次数</p>
+          <div className="min-w-0 pr-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-white"><BarChart3 className="h-4 w-4 shrink-0 text-cyan-300" /><span className="truncate">联队战前 N 名汇总</span></div>
+            <p className="mt-0.5 truncate text-[10px] text-gray-300">{monthLabel} · 统计进入各场贡献前 N 名的次数</p>
           </div>
-          <div className="flex items-center gap-1">
-            <button onClick={() => loadSummary()} disabled={loading} className="rounded p-1.5 text-gray-200 hover:bg-white/10 disabled:opacity-40" title="刷新"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
-            <button onClick={onClose} className="rounded p-1.5 text-gray-200 hover:bg-white/10" aria-label="关闭"><X className="h-4 w-4" /></button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button onClick={() => loadSummary()} disabled={loading} className="flex h-8 w-8 items-center justify-center rounded text-gray-200 hover:bg-white/10 disabled:opacity-40 sm:h-auto sm:w-auto sm:p-1.5" title="刷新"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
+            <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded text-gray-200 hover:bg-white/10 sm:h-auto sm:w-auto sm:p-1.5" aria-label="关闭"><X className="h-4 w-4" /></button>
           </div>
         </header>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2 sm:px-4">
-          <div className="flex items-center gap-1.5 text-[11px] text-gray-100">
-            <span>命中前</span>
-            <input type="number" min="1" max="100" value={topN} onChange={event => setTopN(clampTopN(event.target.value))} className="h-7 w-14 rounded border border-cyan-300/50 bg-black/30 px-1 text-center font-mono text-xs font-semibold text-cyan-200 outline-none" />
-            <span>名</span>
+        <div className="grid shrink-0 gap-2 border-b border-white/10 px-3 py-2 sm:flex sm:flex-wrap sm:items-center sm:px-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-gray-100">
+              <span>命中前</span>
+              <input type="number" min="1" max="100" value={topN} onChange={event => setTopN(clampTopN(event.target.value))} className="h-7 w-14 rounded border border-cyan-300/50 bg-black/30 px-1 text-center font-mono text-xs font-semibold text-cyan-200 outline-none" />
+              <span>名</span>
+            </div>
+            <div className="flex gap-1">
+              {[10, 15, 20, 30].map(value => <button key={value} onClick={() => setTopN(value)} className={`h-7 rounded border px-2 text-[10px] ${topN === value ? 'border-cyan-300 bg-cyan-400/15 text-cyan-100' : 'border-white/15 text-gray-200 hover:border-white/30'}`}>前{value}</button>)}
+            </div>
           </div>
-          <div className="flex gap-1">
-            {[10, 15, 20, 30].map(value => <button key={value} onClick={() => setTopN(value)} className={`rounded border px-2 py-1 text-[10px] ${topN === value ? 'border-cyan-300 bg-cyan-400/15 text-cyan-100' : 'border-white/15 text-gray-200 hover:border-white/30'}`}>前{value}</button>)}
+          <div className="flex min-w-0 items-center justify-between gap-2 sm:ml-auto">
+            <span className="whitespace-nowrap text-[10px] text-gray-200"><b className="font-mono text-cyan-200">{stats.selectedCount}</b> 场 · <b className="font-mono text-cyan-200">{stats.rows.length}</b> 人上榜</span>
+            <div className="flex shrink-0 gap-1">
+              <button onClick={copyWeights} disabled={!stats.rows.length} className="flex h-7 items-center gap-1 rounded border border-cyan-300/40 px-2 text-[10px] text-cyan-100 disabled:opacity-35"><Clipboard className="h-3 w-3" />复制权重</button>
+              <button onClick={() => downloadCsv(stats.rows, stats.selectedCount, topN)} disabled={!stats.rows.length} className="flex h-7 items-center gap-1 rounded border border-emerald-300/40 px-2 text-[10px] text-emerald-200 disabled:opacity-35"><Download className="h-3 w-3" />CSV</button>
+            </div>
           </div>
-          <div className="flex-1" />
-          <span className="text-[10px] text-gray-200"><b className="font-mono text-cyan-200">{stats.selectedCount}</b> 场 · <b className="font-mono text-cyan-200">{stats.rows.length}</b> 人上榜</span>
-          <button onClick={copyWeights} disabled={!stats.rows.length} className="flex items-center gap-1 rounded border border-cyan-300/40 px-2 py-1 text-[10px] text-cyan-100 disabled:opacity-35"><Clipboard className="h-3 w-3" />复制权重</button>
-          <button onClick={() => downloadCsv(stats.rows, stats.selectedCount, topN)} disabled={!stats.rows.length} className="flex items-center gap-1 rounded border border-emerald-300/40 px-2 py-1 text-[10px] text-emerald-200 disabled:opacity-35"><Download className="h-3 w-3" />CSV</button>
         </div>
 
         {isMobile && (

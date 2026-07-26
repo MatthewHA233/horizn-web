@@ -172,50 +172,54 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
   if (!show) return null
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm">
-      <div className={`flex w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-violet-500/20 bg-[#0c0e15]/95 shadow-2xl ${isMobile ? 'h-[92dvh]' : 'max-h-[88vh]'}`}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-2 backdrop-blur-sm sm:p-3">
+      <div className={`flex w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-violet-500/20 bg-[#0c0e15]/95 shadow-2xl sm:rounded-xl ${isMobile ? 'h-[calc(100dvh-1rem)]' : 'max-h-[88vh]'}`}>
         <div className="h-0.5 shrink-0 bg-gradient-to-r from-cyan-500 via-violet-500 to-amber-400" />
 
-        <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-4 py-3">
-          <div>
+        <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-3 py-2.5 sm:px-4 sm:py-3">
+          <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
-              <Fingerprint className="h-4 w-4 text-violet-400" />
+              <Fingerprint className="h-4 w-4 shrink-0 text-violet-400" />
               管理员登录画像
             </div>
             <p className="mt-1 text-[10px] text-gray-300">成功登录记录 · 永久保留</p>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="ml-2 flex shrink-0 items-center gap-1">
             <button
               onClick={() => loadAudit()}
               disabled={loading}
-              className="rounded-md p-1.5 text-gray-300 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-40"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-gray-300 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-40 sm:h-auto sm:w-auto sm:p-1.5"
               title="刷新"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <button onClick={onClose} className="rounded-md p-1.5 text-gray-300 transition-colors hover:bg-white/5 hover:text-white">
+            <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-gray-300 transition-colors hover:bg-white/5 hover:text-white sm:h-auto sm:w-auto sm:p-1.5" aria-label="关闭">
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        <div className="grid shrink-0 grid-cols-3 gap-2 border-b border-white/5 px-4 py-3">
+        <div className="grid shrink-0 grid-cols-3 gap-1.5 border-b border-white/5 px-3 py-2.5 sm:gap-2 sm:px-4 sm:py-3">
           {[
-            { label: '登录地区', value: data.summary.loginRegions, icon: MapPin, color: 'text-cyan-400' },
-            { label: '登录次数', value: data.summary.totalLogins, icon: ShieldCheck, color: 'text-violet-400' },
-            { label: '超级管理员地区', value: data.summary.superAdminRegions, icon: Fingerprint, color: 'text-amber-400' },
-          ].map(({ label, value, icon: Icon, color }) => (
-            <div key={label} className="rounded-lg border border-white/5 bg-white/[0.025] px-3 py-2">
-              <div className="flex items-center gap-1.5 text-[10px] text-gray-300"><Icon className={`h-3 w-3 ${color}`} />{label}</div>
-              <div className="mt-1 font-mono text-lg font-semibold tabular-nums text-gray-100">{value}</div>
+            { label: '登录地区', mobileLabel: '地区', value: data.summary.loginRegions, icon: MapPin, color: 'text-cyan-400' },
+            { label: '登录次数', mobileLabel: '次数', value: data.summary.totalLogins, icon: ShieldCheck, color: 'text-violet-400' },
+            { label: '超级管理员地区', mobileLabel: '超管地区', value: data.summary.superAdminRegions, icon: Fingerprint, color: 'text-amber-400' },
+          ].map(({ label, mobileLabel, value, icon: Icon, color }) => (
+            <div key={label} className="min-w-0 rounded-lg border border-white/5 bg-white/[0.025] px-2 py-2 sm:px-3">
+              <div className="flex min-w-0 items-center gap-1 text-[10px] leading-tight text-gray-300 sm:gap-1.5">
+                <Icon className={`h-3 w-3 shrink-0 ${color}`} />
+                <span className="sm:hidden">{mobileLabel}</span>
+                <span className="hidden sm:inline">{label}</span>
+              </div>
+              <div className="mt-1 font-mono text-base font-semibold tabular-nums text-gray-100 sm:text-lg">{value}</div>
             </div>
           ))}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 border-b border-white/5 px-4 py-2.5">
-          <div className="flex rounded-md border border-white/5 bg-black/20 p-0.5 text-[10px]">
-            <button onClick={() => setView('profiles')} className={`rounded px-2 py-1 transition-colors ${view === 'profiles' ? 'bg-violet-500/20 text-violet-200' : 'text-gray-300 hover:text-white'}`}>地区画像</button>
-            <button onClick={() => setView('events')} className={`rounded px-2 py-1 transition-colors ${view === 'events' ? 'bg-violet-500/20 text-violet-200' : 'text-gray-300 hover:text-white'}`}>登录记录</button>
+        <div className="flex shrink-0 flex-col items-stretch gap-2 border-b border-white/5 px-3 py-2.5 sm:flex-row sm:items-center sm:px-4">
+          <div className="grid grid-cols-2 rounded-md border border-white/5 bg-black/20 p-0.5 text-[10px] sm:flex">
+            <button onClick={() => setView('profiles')} className={`rounded px-2 py-1.5 transition-colors sm:py-1 ${view === 'profiles' ? 'bg-violet-500/20 text-violet-200' : 'text-gray-300 hover:text-white'}`}>地区画像</button>
+            <button onClick={() => setView('events')} className={`rounded px-2 py-1.5 transition-colors sm:py-1 ${view === 'events' ? 'bg-violet-500/20 text-violet-200' : 'text-gray-300 hover:text-white'}`}>登录记录</button>
           </div>
           <div className="relative min-w-0 flex-1">
             <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
@@ -228,7 +232,7 @@ export default function AdminLoginAuditModal({ show, onClose, isMobile }) {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
+        <div className="min-h-0 flex-1 overflow-y-auto p-2.5 custom-scrollbar sm:p-3">
           {loading && data.profiles.length === 0 ? (
             <div className="flex h-48 items-center justify-center"><RefreshCw className="h-5 w-5 animate-spin text-violet-400" /></div>
           ) : error ? (

@@ -1503,7 +1503,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
     <>
       {/* 外部黑名单删除确认弹窗 */}
       {confirmDeleteElse && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60]">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-gray-800 border border-gray-600 rounded-xl p-5 w-72 shadow-2xl">
             <p className="text-sm text-gray-200 mb-1">确认删除外部黑名单？</p>
             <p className="text-xs text-red-400 mb-4 break-all">「{confirmDeleteElse.name}」</p>
@@ -1514,22 +1514,22 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
           </div>
         </div>
       )}
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-3">
-        <div className={`bg-gray-800/95 backdrop-blur-xl rounded-xl border border-gray-700/50 shadow-2xl w-full overflow-hidden flex flex-col max-h-[90vh] ${showGrid ? 'max-w-lg' : 'max-w-lg'} ${isMobile ? 'select-none' : ''}`}>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-2 backdrop-blur-sm sm:p-3">
+        <div className={`bg-gray-800/95 backdrop-blur-xl rounded-lg sm:rounded-xl border border-gray-700/50 shadow-2xl w-full overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] ${showGrid ? 'max-w-lg' : 'max-w-lg'} ${isMobile ? 'select-none' : ''}`}>
           {/* 顶部装饰条 */}
           <div className={`h-0.5 bg-gradient-to-r ${gradientColor}`}></div>
 
           {/* 标题栏 */}
-          <div className="px-3 py-2.5 border-b border-gray-700/50 flex items-center justify-between flex-shrink-0">
-            <div className="flex items-center gap-3">
+          <div className="px-3 py-2.5 border-b border-gray-700/50 flex flex-col items-stretch gap-2 flex-shrink-0 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-start sm:gap-3">
               <button
                 onClick={() => setActiveTab('hull')}
-                className={`text-xs font-semibold flex items-center gap-1 transition-colors ${
+                className={`flex min-w-0 items-center gap-1 whitespace-nowrap text-xs font-semibold transition-colors ${
                   activeTab === 'hull' ? 'text-blue-400' : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
                 {/* 船舷/舰船图标 */}
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 17l2.5-1.5C7 14.5 8.5 14 10 14h4c1.5 0 3 .5 4.5 1.5L21 17" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 17v-4a2 2 0 012-2h10a2 2 0 012 2v4" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 11V6" />
@@ -1541,23 +1541,23 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
               <span className="text-gray-600">|</span>
               <button
                 onClick={() => setActiveTab('blacklist')}
-                className={`text-xs font-semibold flex items-center gap-1 transition-colors ${
+                className={`flex min-w-0 items-center gap-1 whitespace-nowrap text-xs font-semibold transition-colors ${
                   activeTab === 'blacklist' ? 'text-red-400' : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                 </svg>
                 黑名单({blacklistMembers.length + elseBlacklist.length})
               </button>
             </div>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center justify-end gap-2 border-t border-gray-700/40 pt-2 sm:gap-2.5 sm:border-0 sm:pt-0">
               {/* 舷号视图切换 */}
               {activeTab === 'hull' && (
                 <div className="flex bg-gray-900/50 rounded p-0.5 border border-gray-700/50">
                   <button
                     onClick={() => { setHullView('grid'); setSelectedSeat(null) }}
-                    className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded transition-all ${
+                    className={`flex h-7 w-8 items-center justify-center gap-1 rounded text-xs transition-all sm:h-auto sm:w-auto sm:px-2 sm:py-0.5 ${
                       hullView === 'grid' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-500 hover:text-gray-300'
                     }`}
                   >
@@ -1568,7 +1568,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
                   </button>
                   <button
                     onClick={() => setHullView('list')}
-                    className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded transition-all ${
+                    className={`flex h-7 w-8 items-center justify-center gap-1 rounded text-xs transition-all sm:h-auto sm:w-auto sm:px-2 sm:py-0.5 ${
                       hullView === 'list' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-500 hover:text-gray-300'
                     }`}
                   >
@@ -1583,7 +1583,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
               {activeTab === 'hull' && hullView === 'list' && (
                 <button
                   onClick={() => setHullSort(prev => prev === 'date' ? 'number' : prev === 'number' ? 'qq_join' : 'date')}
-                  className="flex items-center gap-1 px-1.5 py-0.5 text-[11px] text-gray-400 hover:text-white bg-gray-900/50 border border-gray-700/50 rounded transition-all"
+                  className="flex h-7 w-8 items-center justify-center gap-1 rounded border border-gray-700/50 bg-gray-900/50 text-[11px] text-gray-400 transition-all hover:text-white sm:h-auto sm:w-auto sm:px-1.5 sm:py-0.5"
                   title={hullSort === 'date' ? '当前：按授舷时间降序' : hullSort === 'number' ? '当前：按序号升序' : '当前：按入群时间降序'}
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1598,7 +1598,7 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
               <button
                 onClick={loadMembers}
                 disabled={loading}
-                className="text-xs text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+                className="flex h-7 w-7 items-center justify-center rounded text-xs text-gray-400 transition-colors hover:bg-gray-700/40 hover:text-white disabled:opacity-50 sm:h-auto sm:w-auto sm:hover:bg-transparent"
                 title="刷新"
               >
                 {loading
@@ -1610,7 +1610,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
               </button>
               <button
                 onClick={onClose}
-                className="text-gray-400 hover:text-white hover:bg-gray-700/50 rounded p-1 transition-all"
+                className="flex h-7 w-7 items-center justify-center rounded text-gray-400 transition-all hover:bg-gray-700/50 hover:text-white sm:h-auto sm:w-auto sm:p-1"
+                aria-label="关闭"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1810,8 +1811,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
       {/* 舷号添加确认弹窗 */}
       {confirmingHullAdd && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-[60]" onClick={() => { setConfirmingHullAdd(null); cancelPendingHull(confirmingHullAdd.playerId) }} />
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] bg-black/40" onClick={() => { setConfirmingHullAdd(null); cancelPendingHull(confirmingHullAdd.playerId) }} />
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div
               className="bg-gray-800 rounded-lg shadow-xl border border-gray-600 w-full max-w-sm p-4"
               onClick={(e) => e.stopPropagation()}
@@ -1843,8 +1844,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
       {/* 舷号删除确认弹窗 */}
       {confirmingHullDelete && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-[60]" onClick={() => setConfirmingHullDelete(null)} />
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] bg-black/40" onClick={() => setConfirmingHullDelete(null)} />
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div
               className="bg-gray-800 rounded-lg shadow-xl border border-gray-600 w-full max-w-sm p-4"
               onClick={(e) => e.stopPropagation()}
@@ -1893,8 +1894,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
       {/* 黑名单确认弹窗 */}
       {confirmingBlacklist && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-[60]" onClick={() => setConfirmingBlacklist(null)} />
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] bg-black/40" onClick={() => setConfirmingBlacklist(null)} />
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div
               className="bg-gray-800 rounded-lg shadow-xl border border-gray-600 w-full max-w-sm p-4"
               onClick={(e) => e.stopPropagation()}
@@ -1958,8 +1959,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
       {/* 外部黑名单表单弹窗 */}
       {elseFormMode !== null && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-[60]" onClick={() => setElseFormMode(null)} />
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] bg-black/40" onClick={() => setElseFormMode(null)} />
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div
               className="bg-gray-800 rounded-lg shadow-xl border border-red-500/30 w-full max-w-sm p-4"
               onClick={(e) => e.stopPropagation()}
@@ -2021,8 +2022,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
       {/* 批量导入弹窗 */}
       {showImportModal && (
         <>
-          <div className="fixed inset-0 bg-black/50 z-[60]" onClick={() => { if (!importing) setShowImportModal(false) }} />
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] bg-black/50" onClick={() => { if (!importing) setShowImportModal(false) }} />
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div
               className="bg-gray-800 rounded-lg shadow-xl border border-orange-500/30 w-full max-w-lg p-4 flex flex-col max-h-[85vh]"
               onClick={(e) => e.stopPropagation()}
@@ -2193,8 +2194,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
       {/* 更迭舷号搜索弹窗 */}
       {transferringHull && !confirmingTransfer && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-[60]" onClick={() => { setTransferringHull(null); setTransferSearchQuery('') }} />
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] bg-black/40" onClick={() => { setTransferringHull(null); setTransferSearchQuery('') }} />
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div
               className="bg-gray-800 rounded-lg shadow-xl border border-amber-500/40 w-full max-w-sm p-4"
               onClick={(e) => e.stopPropagation()}
@@ -2266,8 +2267,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
       {/* 更迭确认弹窗 */}
       {confirmingTransfer && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-[80]" onClick={() => setConfirmingTransfer(null)} />
-          <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[130] bg-black/40" onClick={() => setConfirmingTransfer(null)} />
+          <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
             <div
               className="bg-gray-800 rounded-lg shadow-xl border border-amber-500/50 w-full max-w-sm p-4"
               onClick={(e) => e.stopPropagation()}
@@ -2305,8 +2306,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
       {/* 授予日期选择弹窗 */}
       {editingHullDate && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-[60]" onClick={() => setEditingHullDate(null)} />
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] bg-black/40" onClick={() => setEditingHullDate(null)} />
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div
               className="bg-gray-800 rounded-lg shadow-xl border border-cyan-500/40 w-full max-w-xs p-4"
               onClick={(e) => e.stopPropagation()}
@@ -2365,8 +2366,8 @@ export default function MemberAdminModal({ show, onClose, isMobile }) {
       {/* 拉黑日期选择弹窗 */}
       {editingBlacklistDate && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-[60]" onClick={() => setEditingBlacklistDate(null)} />
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] bg-black/40" onClick={() => setEditingBlacklistDate(null)} />
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div
               className="bg-gray-800 rounded-lg shadow-xl border border-red-500/40 w-full max-w-xs p-4"
               onClick={(e) => e.stopPropagation()}

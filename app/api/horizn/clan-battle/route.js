@@ -48,20 +48,47 @@ export async function GET(request) {
 
       const [sessionResult, rankingResult] = await Promise.all([
         queryDuckDB(`
+          WITH numbered_sessions AS (
+            SELECT
+              prime_time_id,
+              start_time,
+              end_time,
+              map_id,
+              strftime(start_time + INTERVAL 8 HOUR, '%Y-%m') AS local_month,
+              ROW_NUMBER() OVER (
+                PARTITION BY strftime(start_time + INTERVAL 8 HOUR, '%Y-%m')
+                ORDER BY start_time
+              ) AS month_number
+            FROM clan_prime_times
+          ), target_weeks AS (
+            SELECT DISTINCT date_trunc('week', start_time) AS week_start
+            FROM numbered_sessions
+            WHERE local_month = ?
+          )
           SELECT
-            prime_time_id,
-            strftime(start_time, '%Y-%m-%dT%H:%M:%S') AS start_time,
-            strftime(end_time, '%Y-%m-%dT%H:%M:%S') AS end_time,
-            map_id
-          FROM clan_prime_times
-          WHERE strftime(start_time + INTERVAL 8 HOUR, '%Y-%m') = ?
-          ORDER BY start_time
+            sessions.prime_time_id,
+            strftime(sessions.start_time, '%Y-%m-%dT%H:%M:%S') AS start_time,
+            strftime(sessions.end_time, '%Y-%m-%dT%H:%M:%S') AS end_time,
+            sessions.map_id,
+            sessions.local_month,
+            sessions.month_number
+          FROM numbered_sessions sessions
+          JOIN target_weeks weeks
+            ON sessions.start_time >= weeks.week_start
+           AND sessions.start_time < weeks.week_start + INTERVAL 1 WEEK
+          ORDER BY sessions.start_time
         `, [month]),
         queryDuckDB(`
-          WITH month_sessions AS (
-            SELECT prime_time_id, start_time, end_time
+          WITH target_weeks AS (
+            SELECT DISTINCT date_trunc('week', start_time) AS week_start
             FROM clan_prime_times
             WHERE strftime(start_time + INTERVAL 8 HOUR, '%Y-%m') = ?
+          ), month_sessions AS (
+            SELECT sessions.prime_time_id, sessions.start_time, sessions.end_time
+            FROM clan_prime_times sessions
+            JOIN target_weeks weeks
+              ON sessions.start_time >= weeks.week_start
+             AND sessions.start_time < weeks.week_start + INTERVAL 1 WEEK
           ), player_sessions AS (
             SELECT
               sessions.prime_time_id,
@@ -108,14 +135,19 @@ export async function GET(request) {
         })
       }
 
-      const sessions = (sessionResult.rows || []).map((row, index) => ({
-        id: row[0],
-        number: index + 1,
-        startTime: row[1],
-        endTime: row[2],
-        mapId: row[3],
-        playerCount: rankings[row[0]]?.length || 0,
-      }))
+      const sessions = (sessionResult.rows || []).map(row => {
+        const sessionYearMonth = String(row[4] || '').replace('-', '')
+        return {
+          id: row[0],
+          number: Number(row[5] || 0),
+          startTime: row[1],
+          endTime: row[2],
+          mapId: row[3],
+          yearMonth: sessionYearMonth,
+          isAdjacent: sessionYearMonth !== month.replace('-', ''),
+          playerCount: rankings[row[0]]?.length || 0,
+        }
+      })
 
       return Response.json({ sessions, rankings }, { headers: { 'Cache-Control': 'no-store' } })
     }
