@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Map as MapIcon, Swords, Trophy, X } from 'lucide-react'
 import { mapName } from '@/lib/mapNames'
+import ClanMapArtwork from './ClanMapArtwork'
 
 const RANKING_LIMIT = 30
 const DATE_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
@@ -228,17 +229,18 @@ export default function ClanBattleView({ yearMonth }) {
 
               <button
                 onClick={() => setShowSessionPicker(value => !value)}
-                className="grid min-h-9 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 rounded-lg border border-white/10 bg-black/25 px-2 py-1 text-left transition-colors hover:border-cyan-300/40 sm:min-h-11 sm:px-3 sm:py-1.5"
+                className="group relative isolate grid min-h-9 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 overflow-hidden rounded-lg border border-white/10 bg-black/25 px-2 py-1 text-left transition-colors hover:border-cyan-300/40 sm:min-h-11 sm:px-3 sm:py-1.5"
                 aria-label="选择联队战场次"
               >
-                <span className="min-w-0 flex-1">
+                {selectedSession && <ClanMapArtwork mapId={selectedSession.mapId} variant="selector" />}
+                <span className="relative z-10 min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-x-1.5 text-[9px] leading-tight text-gray-300 sm:text-[11px]">
                     <span className="font-mono font-semibold text-cyan-200">#{String(selectedIndex + 1).padStart(2, '0')}/{sessions.length}</span>
                     {selectedSession && <span>{DATE_FORMATTER.format(asUtcDate(selectedSession.startTime))} · {TIME_FORMATTER.format(asUtcDate(selectedSession.startTime))}</span>}
                   </span>
                   {selectedSession && <span className="mt-0.5 block whitespace-normal break-all text-[11px] font-medium leading-tight text-white sm:text-sm">{mapName(selectedSession.mapId)}</span>}
                 </span>
-                <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-cyan-200 transition-transform ${showSessionPicker ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`relative z-10 h-3.5 w-3.5 shrink-0 text-cyan-200 transition-transform ${showSessionPicker ? 'rotate-180' : ''}`} />
               </button>
 
               <button
@@ -278,17 +280,18 @@ export default function ClanBattleView({ yearMonth }) {
                                   setSelectedId(session.id)
                                   setShowSessionPicker(false)
                                 }}
-                                className={`grid min-h-10 w-full grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-1.5 rounded-lg border px-1.5 py-1 text-left transition-colors sm:min-h-12 sm:grid-cols-[34px_minmax(0,1fr)_auto] sm:gap-2 sm:px-2 sm:py-1.5 ${active ? 'border-cyan-300 bg-cyan-400/15' : 'border-white/10 bg-white/[0.04] hover:border-cyan-300/40'}`}
+                                className={`group relative isolate grid min-h-10 w-full grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-1.5 overflow-hidden rounded-lg border px-1.5 py-1 text-left transition-colors sm:min-h-12 sm:grid-cols-[34px_minmax(0,1fr)_auto] sm:gap-2 sm:px-2 sm:py-1.5 ${active ? 'border-cyan-300 bg-cyan-400/15' : 'border-white/10 bg-white/[0.04] hover:border-cyan-300/40'}`}
                               >
-                                <span className={`text-center font-mono text-[9px] font-semibold sm:text-[11px] ${active ? 'text-cyan-200' : 'text-gray-300'}`}>#{String(session.number).padStart(2, '0')}</span>
-                                <span className="min-w-0">
+                                <ClanMapArtwork mapId={session.mapId} variant="row" />
+                                <span className={`relative z-10 text-center font-mono text-[9px] font-semibold sm:text-[11px] ${active ? 'text-cyan-200' : 'text-gray-300'}`}>#{String(session.number).padStart(2, '0')}</span>
+                                <span className="relative z-10 min-w-0">
                                   <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[10px] leading-tight sm:text-xs">
                                     <span className="font-mono font-semibold text-white">{TIME_FORMATTER.format(asUtcDate(session.startTime))}–{TIME_FORMATTER.format(asUtcDate(session.endTime))}</span>
                                     <span className={`flex items-center gap-1 text-[8px] sm:text-[10px] ${status.color}`}><span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />{status.label}</span>
                                   </span>
                                   <span className="mt-0.5 block whitespace-normal break-all text-[10px] font-medium leading-tight text-gray-100 sm:text-xs">{mapName(session.mapId)}</span>
                                 </span>
-                                {active && <Check className="h-3.5 w-3.5 shrink-0 text-cyan-200" />}
+                                {active && <Check className="relative z-10 h-3.5 w-3.5 shrink-0 text-cyan-200" />}
                               </button>
                             )
                           })}
@@ -301,17 +304,26 @@ export default function ClanBattleView({ yearMonth }) {
             </section>
 
             {selectedSession && (
-              <section className="min-h-0 overflow-hidden rounded-xl border border-white/5 bg-[#0b1019]/80">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-3 py-2.5 sm:gap-3 sm:px-5 sm:py-4">
+              <section className="group relative isolate min-h-0 overflow-hidden rounded-xl border border-cyan-300/10 bg-[#0b1019]/80 shadow-[0_18px_50px_rgba(0,0,0,0.22)]">
+                <ClanMapArtwork
+                  mapId={selectedSession.mapId}
+                  variant="panel"
+                  className="z-0"
+                  style={{ height: 184, bottom: 'auto' }}
+                />
+                <div className="relative z-10 flex min-h-[66px] flex-wrap items-center justify-between gap-2 border-b border-cyan-300/15 bg-gradient-to-b from-slate-950/5 to-slate-950/30 px-3 py-2.5 sm:min-h-[82px] sm:gap-3 sm:px-5 sm:py-4">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-xs font-medium text-white sm:text-sm">
+                    <div className="flex items-center gap-2 text-[9px] font-medium uppercase tracking-[0.18em] text-cyan-100/70 sm:text-[10px]">
                       <Trophy className="h-3.5 w-3.5 text-amber-400 sm:h-4 sm:w-4" />
-                      本场贡献前 {RANKING_LIMIT} 名
+                      Clan Battle · Top {RANKING_LIMIT}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-gray-300 sm:text-[11px]">
+                    <h2 className="mt-0.5 truncate text-sm font-semibold tracking-wide text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] sm:text-xl">
+                      {mapName(selectedSession.mapId)}
+                    </h2>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-gray-200 sm:text-[11px]">
                       <span className="flex items-center gap-1"><CalendarDays className="h-2.5 w-2.5" />{DATE_FORMATTER.format(asUtcDate(selectedSession.startTime))}</span>
                       <span className="flex items-center gap-1"><Clock3 className="h-2.5 w-2.5" />{TIME_FORMATTER.format(asUtcDate(selectedSession.startTime))}–{TIME_FORMATTER.format(asUtcDate(selectedSession.endTime))}</span>
-                      <span className="flex items-center gap-1"><MapIcon className="h-2.5 w-2.5" />{mapName(selectedSession.mapId)}</span>
+                      <span className="flex items-center gap-1"><MapIcon className="h-2.5 w-2.5" />本场贡献前 {RANKING_LIMIT} 名</span>
                     </div>
                   </div>
                   {(() => {
@@ -320,32 +332,34 @@ export default function ClanBattleView({ yearMonth }) {
                   })()}
                 </div>
 
-                {loadingRanking ? (
-                  <RankingSkeleton />
-                ) : error ? (
-                  <div className="py-20 text-center text-xs text-red-300">{error}</div>
-                ) : visibleRanking.length === 0 ? (
-                  <div className="py-20 text-center text-xs text-gray-300">本场暂无排行榜采样，可能尚未开始</div>
-                ) : (
-                  <div className="divide-y divide-white/[0.04]">
-                    {visibleRanking.map(player => {
-                      const pct = maxGain > 0 ? Math.max(3, (player.gain / maxGain) * 100) : 0
-                      const parsed = splitName(player.name)
-                      const isTop3 = player.rank <= 3
-                      return (
-                        <div key={player.playerId} className="relative grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2 overflow-hidden px-3 py-2 sm:grid-cols-[52px_minmax(0,1fr)_140px] sm:gap-3 sm:px-5 sm:py-3">
-                          <div className="absolute inset-y-1 left-0 bg-gradient-to-r from-cyan-400/[0.10] to-transparent" style={{ width: `${pct}%` }} />
-                          <span className={`relative text-center font-mono text-[11px] sm:text-xs ${isTop3 ? 'font-semibold text-cyan-300' : 'text-gray-400'}`}>{String(player.rank).padStart(2, '0')}</span>
-                          <div className="relative flex min-w-0 items-baseline gap-1.5">
-                            {parsed.hull && <span className="shrink-0 font-mono text-[9px] font-semibold text-amber-400/80 sm:text-[11px]">No.{parsed.hull}</span>}
-                            <span className="truncate text-[11px] text-gray-200 sm:text-sm" title={player.name}>{parsed.name}</span>
+                <div className="relative z-10 bg-gradient-to-b from-[#07101a]/45 via-[#0b1019]/90 to-[#0b1019]">
+                  {loadingRanking ? (
+                    <RankingSkeleton />
+                  ) : error ? (
+                    <div className="py-20 text-center text-xs text-red-300">{error}</div>
+                  ) : visibleRanking.length === 0 ? (
+                    <div className="py-20 text-center text-xs text-gray-300">本场暂无排行榜采样，可能尚未开始</div>
+                  ) : (
+                    <div className="divide-y divide-white/[0.04]">
+                      {visibleRanking.map(player => {
+                        const pct = maxGain > 0 ? Math.max(3, (player.gain / maxGain) * 100) : 0
+                        const parsed = splitName(player.name)
+                        const isTop3 = player.rank <= 3
+                        return (
+                          <div key={player.playerId} className="relative grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2 overflow-hidden px-3 py-2 sm:grid-cols-[52px_minmax(0,1fr)_140px] sm:gap-3 sm:px-5 sm:py-3">
+                            <div className="absolute inset-y-1 left-0 bg-gradient-to-r from-cyan-400/[0.10] to-transparent" style={{ width: `${pct}%` }} />
+                            <span className={`relative text-center font-mono text-[11px] sm:text-xs ${isTop3 ? 'font-semibold text-cyan-300' : 'text-gray-400'}`}>{String(player.rank).padStart(2, '0')}</span>
+                            <div className="relative flex min-w-0 items-baseline gap-1.5">
+                              {parsed.hull && <span className="shrink-0 font-mono text-[9px] font-semibold text-amber-400/80 sm:text-[11px]">No.{parsed.hull}</span>}
+                              <span className="truncate text-[11px] text-gray-200 sm:text-sm" title={player.name}>{parsed.name}</span>
+                            </div>
+                            <span className={`relative text-right font-mono text-xs font-semibold tabular-nums sm:text-sm ${isTop3 ? 'text-cyan-300' : 'text-gray-400'}`}>+{player.gain.toLocaleString()}</span>
                           </div>
-                          <span className={`relative text-right font-mono text-xs font-semibold tabular-nums sm:text-sm ${isTop3 ? 'text-cyan-300' : 'text-gray-400'}`}>+{player.gain.toLocaleString()}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               </section>
             )}
 

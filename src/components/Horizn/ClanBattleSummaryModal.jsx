@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BarChart3, Check, Clipboard, Download, ListChecks, RefreshCw, Trophy, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { mapName } from '@/lib/mapNames'
+import ClanMapArtwork from './ClanMapArtwork'
 
 const DATE_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Hong_Kong',
@@ -170,11 +171,12 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
               key={session.id}
               onClick={() => toggleSession(session)}
               disabled={!enabled}
-              className={`grid w-full grid-cols-[20px_34px_minmax(0,1fr)] items-start gap-1.5 border-b border-white/[0.07] px-3 py-2 text-left transition-colors ${active ? 'bg-cyan-400/10' : 'hover:bg-white/[0.04]'} disabled:cursor-not-allowed disabled:opacity-35`}
+              className={`group relative isolate grid w-full grid-cols-[20px_34px_minmax(0,1fr)] items-start gap-1.5 overflow-hidden border-b border-white/[0.07] px-3 py-2 text-left transition-colors ${active ? 'bg-cyan-400/10' : 'hover:bg-white/[0.04]'} disabled:cursor-not-allowed disabled:opacity-35`}
             >
-              <span className={`mt-0.5 flex h-4 w-4 items-center justify-center rounded border ${active ? 'border-cyan-200 bg-cyan-300 text-slate-950' : 'border-white/25'}`}>{active && <Check className="h-3 w-3" />}</span>
-              <span className={`pt-0.5 text-right font-mono text-[10px] ${active ? 'font-semibold text-cyan-200' : 'text-gray-300'}`}>#{session.number}</span>
-              <span className="min-w-0">
+              <ClanMapArtwork mapId={session.mapId} variant="row" />
+              <span className={`relative z-10 mt-0.5 flex h-4 w-4 items-center justify-center rounded border ${active ? 'border-cyan-200 bg-cyan-300 text-slate-950' : 'border-white/25'}`}>{active && <Check className="h-3 w-3" />}</span>
+              <span className={`relative z-10 pt-0.5 text-right font-mono text-[10px] ${active ? 'font-semibold text-cyan-200' : 'text-gray-300'}`}>#{session.number}</span>
+              <span className="relative z-10 min-w-0">
                 <span className="flex flex-wrap gap-x-1.5 text-[10px] text-gray-100">
                   <span>{DATE_FORMATTER.format(asUtcDate(session.startTime))}</span>
                   <span className="font-mono font-semibold text-white">{TIME_FORMATTER.format(asUtcDate(session.startTime))}</span>

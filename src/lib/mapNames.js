@@ -40,6 +40,26 @@ const MAP_ID_ALIASES = Object.freeze({
   Storm_Classic: 'StormClassic',
 })
 
+const CLAN_MAP_ARTWORK_BASE = 'https://assets.lingflow.cn/mw-gacha-simulation/assets/contentseparated_assets_mapthumbnails'
+const CLAN_MAP_ARTWORK_WEBP = '?x-oss-process=image/format,webp'
+
+const CLAN_MAP_ARTWORK_SLUGS = Object.freeze({
+  AridFrontier: 'map_aridfrontier',
+  Greenlands: 'map_greenlands',
+  HiddenDragon: 'map_hiddendragon',
+  Iceland: 'map_iceland',
+  LostCity: 'map_lostcity',
+  MonstrousMaelstrom: 'map_monstrousmaelstrom',
+  OldFactory: 'map_oldfactory',
+  PolarFrontier: 'map_polarfrontier',
+  RisingFortress: 'map_risingfortress',
+  StonePeaks: 'map_stonepeaks',
+  StormClassic: 'map_storm_classic',
+  TwoSamurai: 'map_twosamurai',
+  UnexploredRocks: 'map_unexploredrocks',
+  VikingBay: 'map_vikingbay',
+})
+
 const HAS_HAN = /[\u3400-\u9fff]/
 
 export function mapName(mapId) {
@@ -49,4 +69,12 @@ export function mapName(mapId) {
 
   const id = raw.replace(/^Maps\//, '').replace(/^map_/, '')
   return MAP_NAMES_ZH_CN[MAP_ID_ALIASES[id] || id] || '未知地图'
+}
+
+/** 联队赛地图 ID → 阿里云 CDN 实时转换的 WebP 概念图。 */
+export function mapArtworkUrl(mapId) {
+  const raw = String(mapId || '').trim()
+  const id = raw.replace(/^Maps\//, '').replace(/^map_/, '')
+  const slug = CLAN_MAP_ARTWORK_SLUGS[MAP_ID_ALIASES[id] || id]
+  return slug ? `${CLAN_MAP_ARTWORK_BASE}/${slug}.png${CLAN_MAP_ARTWORK_WEBP}` : null
 }
