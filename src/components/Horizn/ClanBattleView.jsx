@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Map as MapIcon, Swords, Trophy, X } from 'lucide-react'
+import { mapName } from '@/lib/mapNames'
 
 const RANKING_LIMIT = 30
 const DATE_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
@@ -31,10 +32,6 @@ function dateKey(value) {
   }).formatToParts(asUtcDate(value))
   const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
   return `${values.year}-${values.month}-${values.day}`
-}
-
-function mapName(mapId) {
-  return (mapId || '').replace(/^map_/, '').replaceAll('_', ' ') || '未知地图'
 }
 
 function sessionStatus(session) {

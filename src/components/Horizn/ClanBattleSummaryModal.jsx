@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BarChart3, Check, Clipboard, Download, ListChecks, RefreshCw, Trophy, X } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { mapName } from '@/lib/mapNames'
 
 const DATE_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Hong_Kong',
@@ -20,10 +21,6 @@ const TIME_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
 function asUtcDate(value) {
   if (!value) return new Date(0)
   return new Date(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`)
-}
-
-function mapName(mapId) {
-  return (mapId || '').replace(/^map_/, '').replaceAll('_', ' ') || '未知地图'
 }
 
 function clampTopN(value) {
