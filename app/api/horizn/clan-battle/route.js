@@ -2,6 +2,8 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 import { getAdminSession, hasRequiredRole } from '@/lib/horiznAdminAuth'
+import { buildLatestMemberNameMap } from '@/lib/horiznMemberNames'
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 
 const DUCKDB_URL = process.env.DUCKDB_URL || process.env.NEXT_PUBLIC_DUCKDB_URL || ''
 
@@ -18,6 +20,18 @@ async function queryDuckDB(query, args = []) {
 
   if (!response.ok) throw new Error(`DuckDB 查询失败 (${response.status})`)
   return response.json()
+}
+
+async function getLatestMemberNames() {
+  try {
+    const { data, error } = await getSupabaseAdmin().rpc('horizn_get_members')
+    if (error) throw error
+    return buildLatestMemberNameMap(data)
+  } catch (error) {
+    // 名字服务异常不能阻断联队战历史数据，保留 DuckDB 采样名作为降级。
+    console.warn('[clan-battle] 最新成员名字读取失败，回退历史采样名:', error.message)
+    return {}
+  }
 }
 
 function parseYearMonth(value) {
@@ -46,7 +60,7 @@ export async function GET(request) {
         return Response.json({ error: '需要管理员权限' }, { status: 401 })
       }
 
-      const [sessionResult, rankingResult] = await Promise.all([
+      const [sessionResult, rankingResult, latestMemberNames] = await Promise.all([
         queryDuckDB(`
           WITH numbered_sessions AS (
             SELECT
@@ -120,6 +134,7 @@ export async function GET(request) {
           WHERE session_rank <= 100
           ORDER BY prime_time_id, session_rank
         `, [month]),
+        getLatestMemberNames(),
       ])
 
       const rankings = {}
@@ -128,7 +143,7 @@ export async function GET(request) {
         if (!rankings[sessionKey]) rankings[sessionKey] = []
         rankings[sessionKey].push({
           playerId: row[1],
-          name: row[2] || row[1],
+          name: latestMemberNames[row[1]] || row[2] || row[1],
           gain: Number(row[3] || 0),
           globalPlace: Number(row[4] || 0),
           rank: Number(row[5] || 0),
@@ -183,7 +198,8 @@ export async function GET(request) {
     }
 
     const top = Math.min(100, Math.max(1, Number(searchParams.get('top')) || 100))
-    const result = await queryDuckDB(`
+    const [result, latestMemberNames] = await Promise.all([
+      queryDuckDB(`
       WITH target AS (
         SELECT start_time, end_time
         FROM clan_prime_times
@@ -212,12 +228,14 @@ export async function GET(request) {
       FROM ranked
       ORDER BY gain DESC, place_in_rating
       LIMIT ${top}
-    `, [sessionId, month])
+      `, [sessionId, month]),
+      getLatestMemberNames(),
+    ])
 
     const ranking = (result.rows || []).map((row, index) => ({
       rank: index + 1,
       playerId: row[0],
-      name: row[1] || row[0],
+      name: latestMemberNames[row[0]] || row[1] || row[0],
       firstPoints: Number(row[2] || 0),
       finalPoints: Number(row[3] || 0),
       gain: Number(row[4] || 0),

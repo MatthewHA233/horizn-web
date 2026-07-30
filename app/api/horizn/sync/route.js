@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import OSS from 'ali-oss'
 import { safeEqualSecret } from '@/lib/horiznAdminAuth'
+import { getLatestHttpTrustedName } from '@/lib/horiznMemberNames'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 
 function getSupabase() {
@@ -24,7 +25,7 @@ const OSS_PREFIX = 'mw-gacha-simulation/horizn'
 function buildIdMapping(members) {
   const mapping = {}
   for (const m of members || []) {
-    const primaryName = m.primary_name || m.player_id
+    const primaryName = getLatestHttpTrustedName(m)
     const group0 = Array.isArray(m.name_groups)
       ? m.name_groups.find(g => g.group_index === 0)
       : null

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { getLatestHttpTrustedName } from '@/lib/horiznMemberNames'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -15,7 +16,7 @@ function getSupabase() {
 function buildIdMapping(members) {
   const mapping = {}
   for (const m of members || []) {
-    const primaryName = m.primary_name || m.player_id
+    const primaryName = getLatestHttpTrustedName(m)
     const group0 = Array.isArray(m.name_groups)
       ? m.name_groups.find(g => g.group_index === 0)
       : null

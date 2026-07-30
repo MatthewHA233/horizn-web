@@ -1,5 +1,6 @@
 import { assertSupabase } from './supabaseClient'
 import { generateColorMap } from '@/utils/csvParser'
+import { getLatestHttpTrustedName } from '@/lib/horiznMemberNames'
 
 const AVAILABLE_MONTHS_CACHE_TTL_MS = 5 * 60 * 1000
 const OSS_HORIZN_BASE = process.env.NEXT_PUBLIC_HORIZN_OSS_BASE || ''
@@ -45,7 +46,7 @@ const getYearMonthFromDateValue = (dateValue) => normalizeIsoDate(dateValue).sli
 const buildIdMappingFromMembers = (members) => {
   const mapping = {}
   for (const m of members || []) {
-    const primaryName = m.primary_name || m.player_id
+    const primaryName = getLatestHttpTrustedName(m)
     const group0 = Array.isArray(m.name_groups) ? m.name_groups.find(g => g.group_index === 0) : null
     const variants = Array.isArray(group0?.names)
       ? group0.names.map(n => n?.name).filter(Boolean)
