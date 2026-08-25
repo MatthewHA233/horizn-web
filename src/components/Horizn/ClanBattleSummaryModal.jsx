@@ -351,8 +351,8 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
           <div className="flex min-w-0 items-center justify-between gap-2 sm:ml-auto">
             <span className="whitespace-nowrap text-[10px] text-gray-200"><b className="font-mono text-cyan-200">{stats.selectedCount}</b> 场 · <b className="font-mono text-cyan-200">{stats.rows.length}</b> 人上榜</span>
             <div className="flex shrink-0 gap-1">
-              <button onClick={copyNames} disabled={!stats.rows.length} className="flex h-7 items-center gap-1 rounded border border-cyan-300/40 px-2 text-[10px] text-cyan-100 disabled:opacity-35"><Clipboard className="h-3 w-3" />复制名字</button>
-              <button onClick={copyWeights} disabled={!stats.rows.length} className="flex h-7 items-center gap-1 rounded border border-cyan-300/40 px-2 text-[10px] text-cyan-100 disabled:opacity-35"><Clipboard className="h-3 w-3" />复制权重</button>
+              <button onClick={copyNames} disabled={!stats.rows.length} className="flex h-7 items-center gap-1 rounded border border-cyan-300/40 px-2 text-[10px] text-cyan-100 disabled:opacity-35"><Clipboard className="h-3 w-3" />名字</button>
+              <button onClick={copyWeights} disabled={!stats.rows.length} className="flex h-7 items-center gap-1 rounded border border-cyan-300/40 px-2 text-[10px] text-cyan-100 disabled:opacity-35"><Clipboard className="h-3 w-3" />名字权重</button>
               <button onClick={() => downloadCsv(stats.rows, stats.selectedCount, topN)} disabled={!stats.rows.length} className="flex h-7 items-center gap-1 rounded border border-emerald-300/40 px-2 text-[10px] text-emerald-200 disabled:opacity-35"><Download className="h-3 w-3" />CSV</button>
             </div>
           </div>
