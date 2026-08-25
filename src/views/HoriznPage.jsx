@@ -62,7 +62,7 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
   // 超级管理员登录审计画像
   const [showAdminLoginAuditModal, setShowAdminLoginAuditModal] = useState(false)
 
-  // 联队战前 N 名命中汇总（普通管理员可用）
+  // 联队战前 N 名入围汇总（普通管理员可用）
   const [showClanBattleSummaryModal, setShowClanBattleSummaryModal] = useState(false)
 
   // 刷新状态
@@ -952,7 +952,7 @@ export default function HoriznPage({ yearMonth, serverIdMapping }) {
         isMobile={isMobile}
       />
 
-      {/* 联队战前 N 名命中汇总（普通管理员可用） */}
+      {/* 联队战前 N 名入围汇总（普通管理员可用） */}
       <ClanBattleSummaryModal
         show={showClanBattleSummaryModal}
         onClose={() => setShowClanBattleSummaryModal(false)}

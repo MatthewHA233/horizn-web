@@ -50,7 +50,7 @@ function sessionNumberLabel(session, yearMonth) {
 }
 
 function downloadCsv(rows, selectedCount, topN) {
-  const header = ['排名', '玩家名', '命中次数', `命中率(共${selectedCount}场)`, '命中场次(编号)']
+  const header = ['排名', '玩家名', '入围次数', `入围率(共${selectedCount}场)`, '入围场次(编号)']
   const body = rows.map((row, index) => [
     index + 1,
     row.name,
@@ -66,7 +66,7 @@ function downloadCsv(rows, selectedCount, topN) {
   const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }))
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = `联队战命中统计_前${topN}名_${selectedCount}场.csv`
+  anchor.download = `联队战入围统计_前${topN}名_${selectedCount}场.csv`
   anchor.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
@@ -198,6 +198,17 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
     }
   }
 
+  // 只复制名字：每行一个名字，不含权重（入围次数）
+  const copyNames = async () => {
+    const text = stats.rows.map(row => row.name).join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('名字已复制', { duration: 1500 })
+    } catch {
+      toast.error('复制失败')
+    }
+  }
+
   if (!show) return null
 
   const maxHits = stats.rows[0]?.hits || 0
@@ -285,13 +296,13 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
   const summaryTable = (
     <div className="flex h-full min-h-0 flex-col">
       <div className="grid shrink-0 grid-cols-[34px_minmax(0,1fr)_52px_58px] gap-2 border-b border-white/10 bg-[#111824] px-3 py-2 text-[9px] font-medium text-gray-200 sm:grid-cols-[44px_minmax(160px,1fr)_64px_90px_minmax(150px,1fr)] sm:text-[10px]">
-        <span>排名</span><span>玩家</span><span className="text-center">命中</span><span className="text-right">命中率</span><span className="hidden sm:block">命中场次</span>
+        <span>排名</span><span>玩家</span><span className="text-center">入围</span><span className="text-right">入围率</span><span className="hidden sm:block">入围场次</span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
         {stats.selectedCount === 0 ? (
           <div className="flex h-48 items-center justify-center text-xs text-gray-300">请先选择场次</div>
         ) : stats.rows.length === 0 ? (
-          <div className="flex h-48 items-center justify-center text-xs text-gray-300">所选场次暂无命中数据</div>
+          <div className="flex h-48 items-center justify-center text-xs text-gray-300">所选场次暂无入围数据</div>
         ) : stats.rows.map((row, index) => {
           const rate = stats.selectedCount ? (row.hits / stats.selectedCount) * 100 : 0
           const width = maxHits ? (row.hits / maxHits) * 100 : 0
@@ -329,7 +340,7 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
         <div className="grid shrink-0 gap-2 border-b border-white/10 px-3 py-2 sm:flex sm:flex-wrap sm:items-center sm:px-4">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-gray-100">
-              <span>命中前</span>
+              <span>入围前</span>
               <input type="number" min="1" max="100" value={topN} onChange={event => setTopN(clampTopN(event.target.value))} className="h-7 w-14 rounded border border-cyan-300/50 bg-black/30 px-1 text-center font-mono text-xs font-semibold text-cyan-200 outline-none" />
               <span>名</span>
             </div>
@@ -340,6 +351,7 @@ export default function ClanBattleSummaryModal({ show, onClose, isMobile, yearMo
           <div className="flex min-w-0 items-center justify-between gap-2 sm:ml-auto">
             <span className="whitespace-nowrap text-[10px] text-gray-200"><b className="font-mono text-cyan-200">{stats.selectedCount}</b> 场 · <b className="font-mono text-cyan-200">{stats.rows.length}</b> 人上榜</span>
             <div className="flex shrink-0 gap-1">
+              <button onClick={copyNames} disabled={!stats.rows.length} className="flex h-7 items-center gap-1 rounded border border-cyan-300/40 px-2 text-[10px] text-cyan-100 disabled:opacity-35"><Clipboard className="h-3 w-3" />复制名字</button>
               <button onClick={copyWeights} disabled={!stats.rows.length} className="flex h-7 items-center gap-1 rounded border border-cyan-300/40 px-2 text-[10px] text-cyan-100 disabled:opacity-35"><Clipboard className="h-3 w-3" />复制权重</button>
               <button onClick={() => downloadCsv(stats.rows, stats.selectedCount, topN)} disabled={!stats.rows.length} className="flex h-7 items-center gap-1 rounded border border-emerald-300/40 px-2 text-[10px] text-emerald-200 disabled:opacity-35"><Download className="h-3 w-3" />CSV</button>
             </div>
