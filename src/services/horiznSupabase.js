@@ -1053,19 +1053,40 @@ export async function getQQMembers() {
 }
 
 /**
- * 获取内群（QQ 群）在群名单，供复制排名名单剔除非内群成员
- * 与 getQQMembers 不同：失败直接抛错，调用方据此暂停复制，避免拿空名单误判
- * @returns {Promise<{playerIds: Set<string>, unbound: Array<{qqId: number, name: string}>}>}
+ * 获取内群 + 审核群在群名单，供复制排名名单剔除两个群都不在的成员
+ * 与 getQQMembers 不同：任一名单失败直接抛错，调用方据此暂停复制，避免拿空名单误判
+ * @returns {Promise<{
+ *   playerIds: Set<string>,
+ *   unbound: Array<{qqId: number, name: string}>,
+ *   reviewUnregistered: Array<{qqId: number, name: string}>
+ * }>}
  */
-export async function getInnerGroupRoster() {
-  const result = await adminApi('?resource=qq-members')
-  const inGroup = (result.data || []).filter(qq => !qq.left_at)
+export async function getGroupRoster() {
+  const [innerResult, reviewResult] = await Promise.all([
+    adminApi('?resource=qq-members'),
+    adminApi('?resource=review-members'),
+  ])
+  const innerRows = innerResult.data || []
+  const reviewRows = reviewResult.data || []
+  const inGroup = innerRows.filter(qq => !qq.left_at)
+  const qqName = qq => qq.card || qq.nickname || String(qq.qq_id)
+  // 已在内群名单里（已绑定或已列入内群未绑定提示）或已忽视（非联队成员）的 QQ，审核群不再重复提示
+  const skipReviewQQ = new Set([
+    ...inGroup.map(qq => String(qq.qq_id)),
+    ...innerRows.filter(qq => qq.is_ignored).map(qq => String(qq.qq_id)),
+  ])
+
   return {
-    playerIds: new Set(inGroup.filter(qq => qq.member?.player_id).map(qq => qq.member.player_id)),
-    // 已忽视的 QQ（非联队成员）不需要人工核对
+    playerIds: new Set([
+      ...inGroup.filter(qq => qq.member?.player_id).map(qq => qq.member.player_id),
+      ...reviewRows.filter(row => row.player_id).map(row => row.player_id),
+    ]),
     unbound: inGroup
       .filter(qq => !qq.member && !qq.is_ignored)
-      .map(qq => ({ qqId: qq.qq_id, name: qq.card || qq.nickname || String(qq.qq_id) })),
+      .map(qq => ({ qqId: qq.qq_id, name: qqName(qq) })),
+    reviewUnregistered: reviewRows
+      .filter(row => !row.player_id && !skipReviewQQ.has(String(row.qq_id)))
+      .map(row => ({ qqId: row.qq_id, name: qqName(row) })),
   }
 }
 

@@ -1,6 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import toast from 'react-hot-toast'
-import { getInnerGroupRoster } from '@/services/horiznSupabase'
+import { getGroupRoster } from '@/services/horiznSupabase'
+
+// 剔除名单的标题（复制文本 / 表格 / 预览共用）
+const EXCLUDED_LABEL = '已剔除非内群非审核群成员'
 
 /**
  * 复制排名名单弹窗组件
@@ -26,10 +29,10 @@ export default function CopyRankModal({
   const [copyMode, setCopyMode] = useState('rank')
   const [thresholdCompare, setThresholdCompare] = useState('gte')
   const [thresholdValue, setThresholdValue] = useState('')
-  // 剔除非内群成员（只保留在 QQ 群里的）：roster = { playerIds, unbound }，每次打开弹窗重新拉取
+  // 剔除群外成员（只保留在内群或审核群里的）：roster = { playerIds, unbound, reviewUnregistered }，每次打开弹窗重新拉取
   const [excludeOuter, setExcludeOuter] = useState(false)
-  const [innerRoster, setInnerRoster] = useState(null)
-  const [innerError, setInnerError] = useState(null)
+  const [roster, setRoster] = useState(null)
+  const [rosterError, setRosterError] = useState(null)
 
   // refs
   const pressTimerRef = useRef(null)
@@ -66,16 +69,16 @@ export default function CopyRankModal({
     }
   }, [show, activeTab])
 
-  // 开启剔除非内群时拉取在群名单
+  // 开启剔除群外时拉取内群 + 审核群在群名单
   useEffect(() => {
-    if (!show || !excludeOuter || innerRoster) return
+    if (!show || !excludeOuter || roster) return
     let cancelled = false
-    setInnerError(null)
-    getInnerGroupRoster()
-      .then(roster => { if (!cancelled) setInnerRoster(roster) })
-      .catch(err => { if (!cancelled) setInnerError(err.message || '内群名单加载失败') })
+    setRosterError(null)
+    getGroupRoster()
+      .then(result => { if (!cancelled) setRoster(result) })
+      .catch(err => { if (!cancelled) setRosterError(err.message || '群名单加载失败') })
     return () => { cancelled = true }
-  }, [show, excludeOuter, innerRoster])
+  }, [show, excludeOuter, roster])
 
   // 清理定时器
   const handlePressEnd = useCallback(() => {
@@ -144,8 +147,8 @@ export default function CopyRankModal({
     return `${month}.${day}入`
   }
 
-  // 剔除非内群已开启但名单未就绪（加载中/失败）：禁止复制，避免把非内群成员带出去
-  const innerPending = excludeOuter && !innerRoster
+  // 剔除群外已开启但名单未就绪（加载中/失败）：禁止复制，避免名单分错
+  const rosterPending = excludeOuter && !roster
 
   /**
    * 按当前筛选条件选出名单（复制文本 / 复制表格 / 预览共用）
@@ -158,20 +161,20 @@ export default function CopyRankModal({
     const allData = selectedData.allData
     const tabName = copyDataType === 'weekly' ? '周活跃度' : '赛季活跃度'
     const formattedTime = formatTimestamp(selectedData.timestamp)
-    const innerIds = excludeOuter ? innerRoster?.playerIds : null
-    // 未开启时全部保留；开启后只保留已绑定且在群的成员
-    const keep = (p) => !innerIds || Boolean(p.playerId && innerIds.has(p.playerId))
+    const groupIds = excludeOuter ? roster?.playerIds : null
+    // 未开启时全部保留；开启后只保留内群已绑定或审核群已登记 ID 的在群成员
+    const keep = (p) => !groupIds || Boolean(p.playerId && groupIds.has(p.playerId))
     const selected = []
     const excluded = []
 
     if (copyMode === 'rank') {
-      // 按名次依次挑内群成员凑满人数，途中跳过的非内群成员进剔除名单
+      // 按名次依次挑群内成员凑满人数，途中跳过的群外成员进剔除名单
       const count = parseInt(copyCount) || 20
       for (let i = 0; i < allData.length && selected.length < count; i++) {
         if (keep(allData[i])) selected.push(allData[i])
         else excluded.push({ player: allData[i], rank: i + 1 })
       }
-      const title = `${formattedTime} HORIZN地平线${tabName}前${count}名${innerIds ? '（仅内群）' : ''}`
+      const title = `${formattedTime} HORIZN地平线${tabName}前${count}名${groupIds ? '（仅内群/审核群）' : ''}`
       return { selected, excluded, title }
     }
 
@@ -183,122 +186,94 @@ export default function CopyRankModal({
       else excluded.push({ player: p, rank: i + 1 })
     })
     const op = thresholdCompare === 'gte' ? '≥' : '≤'
-    const title = `${formattedTime} HORIZN地平线${tabName}${op}${threshold}（${innerIds ? '仅内群，' : ''}共${selected.length}人）`
+    const title = `${formattedTime} HORIZN地平线${tabName}${op}${threshold}（${groupIds ? '仅内群/审核群，' : ''}共${selected.length}人）`
     return { selected, excluded, title }
   }
 
-  // 复制名单
+  // 新来成员的入队日期标注（勾了「新来」才有）
+  const getJoinDateLabel = (p) => {
+    const weeks = (currentData?.newMemberMap || {})[p.name]
+    return copyShowNewMark && weeks && p.playerInfo?.joinDate ? formatJoinDate(p.playerInfo.joinDate) : null
+  }
+
+  // 写剪贴板（不支持 Clipboard API 时退回 execCommand）
+  const copyToClipboard = (text, successMessage, toastOptions) => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text)
+        .then(() => toast.success(successMessage, toastOptions))
+        .catch(() => toast.error('复制失败'))
+      return
+    }
+    const textArea = document.createElement('textarea')
+    textArea.value = text
+    textArea.style.cssText = 'position:fixed;top:-9999px;left:-9999px'
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    try {
+      if (document.execCommand('copy')) toast.success(successMessage, toastOptions)
+      else toast.error('复制失败')
+    } catch {
+      toast.error('复制失败')
+    }
+    document.body.removeChild(textArea)
+  }
+
+  const copiedMessage = ({ selected, excluded }, suffix = '') =>
+    `已复制 ${selected.length} 人${excluded.length ? `（附剔除 ${excluded.length} 人）` : ''}${suffix}`
+
+  // 复制名单：正式名单在前，剔除名单附在最后（保留原名次）
   const handleCopyList = () => {
     const selection = buildSelection()
     if (!selection) return
-    const { selected: selectedPlayers, title } = selection
+    const { selected, excluded, title } = selection
 
-    const newMemberMap = currentData?.newMemberMap || {}
-    const lines = selectedPlayers.map((p, i) => {
-      let line = copyShowIndex ? `${i + 1}. ${p.name}` : p.name
-      if (copyShowId && p.playerId) {
-        line += ` (${p.playerId})`
-      }
-      // 显示入队日期（如果是新来的成员）
-      const weeks = newMemberMap[p.name]
-      if (copyShowNewMark && weeks && p.playerInfo?.joinDate) {
-        const joinDateStr = formatJoinDate(p.playerInfo.joinDate)
-        if (joinDateStr) {
-          line += ` ${joinDateStr}`
-        }
-      }
-      if (copyShowValues) {
-        line += ` (${p.value})`
-      }
+    const formatLine = (p, prefix) => {
+      let line = `${prefix}${p.name}`
+      if (copyShowId && p.playerId) line += ` (${p.playerId})`
+      const joinDateStr = getJoinDateLabel(p)
+      if (joinDateStr) line += ` ${joinDateStr}`
+      if (copyShowValues) line += ` (${p.value})`
       return line
-    })
-
-    const text = `${title}\n${lines.join('\n')}`
-
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text)
-        .then(() => toast.success(`已复制 ${selectedPlayers.length} 人`))
-        .catch(() => toast.error('复制失败'))
-    } else {
-      const textArea = document.createElement('textarea')
-      textArea.value = text
-      textArea.style.cssText = 'position:fixed;top:-9999px;left:-9999px'
-      document.body.appendChild(textArea)
-      textArea.focus()
-      textArea.select()
-      try {
-        const successful = document.execCommand('copy')
-        if (successful) {
-          toast.success(`已复制 ${selectedPlayers.length} 人`)
-        } else {
-          toast.error('复制失败')
-        }
-      } catch {
-        toast.error('复制失败')
-      }
-      document.body.removeChild(textArea)
     }
+
+    const lines = selected.map((p, i) => formatLine(p, copyShowIndex ? `${i + 1}. ` : ''))
+    let text = `${title}\n${lines.join('\n')}`
+    if (excluded.length > 0) {
+      const excludedLines = excluded.map(({ player, rank }) => formatLine(player, copyShowIndex ? `#${rank} ` : ''))
+      text += `\n\n${EXCLUDED_LABEL} ${excluded.length} 人：\n${excludedLines.join('\n')}`
+    }
+
+    copyToClipboard(text, copiedMessage(selection))
   }
 
-  // 复制为表格格式（TSV）
+  // 复制为表格格式（TSV）：剔除名单空一行附在最后，排名列写原名次 #N
   const handleCopyAsTable = () => {
     const selection = buildSelection()
     if (!selection) return
-    const selectedPlayers = selection.selected
+    const { selected, excluded } = selection
     const tabName = copyDataType === 'weekly' ? '周活跃度' : '赛季活跃度'
 
-    // 构建 TSV 格式（Tab分隔）
-    const lines = []
-    // 表头
     const headers = copyShowIndex ? ['排名', '成员名'] : ['成员名']
     if (copyShowId) headers.push('ID')
     if (copyShowNewMark) headers.push('入队日期')
     if (copyShowValues) headers.push(tabName)
-    lines.push(headers.join('\t'))
 
-    // 数据行
-    const newMemberMap = currentData?.newMemberMap || {}
-    selectedPlayers.forEach((p, i) => {
-      const row = copyShowIndex ? [i + 1, p.name] : [p.name]
-      if (copyShowId) {
-        row.push(p.playerId || '')
-      }
-      if (copyShowNewMark) {
-        const weeks = newMemberMap[p.name]
-        const joinDateStr = (weeks && p.playerInfo?.joinDate) ? formatJoinDate(p.playerInfo.joinDate) : ''
-        row.push(joinDateStr || '')
-      }
-      if (copyShowValues) {
-        row.push(p.value)
-      }
-      lines.push(row.join('\t'))
-    })
-
-    const tsvContent = lines.join('\n')
-
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(tsvContent)
-        .then(() => toast.success(`已复制 ${selectedPlayers.length} 人（表格格式）`, { duration: 2000 }))
-        .catch(() => toast.error('复制失败'))
-    } else {
-      const textArea = document.createElement('textarea')
-      textArea.value = tsvContent
-      textArea.style.cssText = 'position:fixed;top:-9999px;left:-9999px'
-      document.body.appendChild(textArea)
-      textArea.focus()
-      textArea.select()
-      try {
-        const successful = document.execCommand('copy')
-        if (successful) {
-          toast.success(`已复制 ${selectedPlayers.length} 人（表格格式）`, { duration: 2000 })
-        } else {
-          toast.error('复制失败')
-        }
-      } catch {
-        toast.error('复制失败')
-      }
-      document.body.removeChild(textArea)
+    const buildRow = (p, rankCell) => {
+      const row = copyShowIndex ? [rankCell, p.name] : [p.name]
+      if (copyShowId) row.push(p.playerId || '')
+      if (copyShowNewMark) row.push(getJoinDateLabel(p) || '')
+      if (copyShowValues) row.push(p.value)
+      return row.join('\t')
     }
+
+    const lines = [headers.join('\t'), ...selected.map((p, i) => buildRow(p, i + 1))]
+    if (excluded.length > 0) {
+      lines.push('', `${EXCLUDED_LABEL} ${excluded.length} 人`)
+      lines.push(...excluded.map(({ player, rank }) => buildRow(player, `#${rank}`)))
+    }
+
+    copyToClipboard(lines.join('\n'), copiedMessage(selection, '（表格格式）'), { duration: 2000 })
   }
 
   // 关闭弹窗并重置状态
@@ -309,9 +284,9 @@ export default function CopyRankModal({
     setThresholdValue(getDefaultThreshold('gte'))
     setManualFrameIndex(null)
     setCopyDataType(activeTab)
-    // 内群名单下次打开重新拉取（开关状态保留）
-    setInnerRoster(null)
-    setInnerError(null)
+    // 群名单下次打开重新拉取（开关状态保留）
+    setRoster(null)
+    setRosterError(null)
     onClose()
   }
 
@@ -321,7 +296,7 @@ export default function CopyRankModal({
     (!currentData && !preloadedData[copyDataType]) ||
     (copyMode === 'rank' && (!copyCount || parseInt(copyCount) <= 0)) ||
     (copyMode === 'threshold' && thresholdValue === '') ||
-    innerPending
+    rosterPending
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4">
@@ -374,14 +349,14 @@ export default function CopyRankModal({
             {/* 剔除非内群成员开关 */}
             <button
               onClick={() => setExcludeOuter(v => !v)}
-              title="只保留内群（QQ群）成员，剔除不在内群的成员"
+              title="只保留内群或审核群里的成员，剔除两个群都不在的（审核群已退群的不算）"
               className={`px-2 py-0.5 text-[10px] font-medium rounded-md border transition-all whitespace-nowrap ${
                 excludeOuter
                   ? 'bg-rose-600 border-rose-500 text-white'
                   : 'border-gray-600 text-gray-400 hover:text-white hover:border-gray-500'
               }`}
             >
-              剔除非内群
+              剔除群外
             </button>
             <button
               onClick={handleClose}
@@ -720,29 +695,27 @@ export default function CopyRankModal({
                   const selection = buildSelection()
                   if (!selection) return null
                   const { selected: selectedPlayers, excluded, title } = selection
-                  const unbound = excludeOuter ? innerRoster?.unbound || [] : []
 
-                  const newMemberMap = currentData?.newMemberMap || {}
-
-                  // 红字提示（仅预览，不复制）：名单加载状态 / 内群未绑定 QQ 需人工核对
-                  let innerNotice = null
-                  if (excludeOuter && innerError) {
-                    innerNotice = `⚠ 内群名单加载失败：${innerError}。已暂停复制，可关闭「剔除非内群」后复制完整名单`
-                  } else if (innerPending) {
-                    innerNotice = '内群名单加载中…'
-                  } else if (unbound.length > 0) {
-                    innerNotice = `⚠ 内群有 ${unbound.length} 个QQ未绑定游戏成员，可能被误剔除，请人工审核以下内群QQ名片是否在清单中：${unbound.map(u => u.name).join('、')}`
+                  // 红字提示（仅预览，不复制）：名单加载状态 / 两个群里没对上游戏成员的 QQ 需人工核对
+                  const notices = []
+                  if (excludeOuter && rosterError) {
+                    notices.push(`⚠ 内群/审核群名单加载失败：${rosterError}。已暂停复制，可关闭「剔除群外」后复制完整名单`)
+                  } else if (rosterPending) {
+                    notices.push('内群/审核群名单加载中…')
+                  } else if (excludeOuter && roster) {
+                    if (roster.unbound.length > 0) {
+                      notices.push(`⚠ 内群有 ${roster.unbound.length} 个QQ未绑定游戏成员，可能被误剔除，请人工审核以下内群QQ名片是否在清单中：${roster.unbound.map(u => u.name).join('、')}`)
+                    }
+                    if (roster.reviewUnregistered.length > 0) {
+                      notices.push(`⚠ 审核群有 ${roster.reviewUnregistered.length} 人未登记游戏ID，可能被误剔除，请人工审核以下审核群QQ名片是否在清单中：${roster.reviewUnregistered.map(u => u.name).join('、')}`)
+                    }
                   }
 
-                  const titleElement = <div className="mb-2 text-gray-200">{title}</div>
-                  const listElements = selectedPlayers.map((p, i) => {
-                    const weeks = newMemberMap[p.name]
-                    const showJoinDate = copyShowNewMark && weeks && p.playerInfo?.joinDate
-                    const joinDateStr = showJoinDate ? formatJoinDate(p.playerInfo.joinDate) : null
-
+                  const renderPlayer = (p, prefix, key) => {
+                    const joinDateStr = getJoinDateLabel(p)
                     return (
-                      <div key={i}>
-                        {copyShowIndex && `${i + 1}. `}{p.name}
+                      <div key={key}>
+                        {prefix}{p.name}
                         {copyShowId && p.playerId && (
                           <span className="text-gray-500"> ({p.playerId})</span>
                         )}
@@ -752,25 +725,20 @@ export default function CopyRankModal({
                         {copyShowValues && <span> ({p.value})</span>}
                       </div>
                     )
-                  })
+                  }
 
                   return (
                     <>
-                      {innerNotice && (
-                        <div className="mb-2 text-red-400 font-sans">{innerNotice}</div>
-                      )}
-                      {titleElement}
-                      {listElements}
+                      {notices.map(notice => (
+                        <div key={notice} className="mb-2 text-red-400 font-sans">{notice}</div>
+                      ))}
+                      <div className="mb-2 text-gray-200">{title}</div>
+                      {selectedPlayers.map((p, i) => renderPlayer(p, copyShowIndex ? `${i + 1}. ` : '', i))}
                       {excluded.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-gray-700/50 text-gray-500">
-                          <div className="mb-1 font-sans">已剔除非内群成员 {excluded.length} 人（不复制）</div>
-                          {excluded.map(({ player, rank }) => (
-                            <div key={player.playerId || rank}>
-                              #{rank} {player.name}
-                              {copyShowId && player.playerId && <span> ({player.playerId})</span>}
-                              {copyShowValues && <span> ({player.value})</span>}
-                            </div>
-                          ))}
+                        <div className="mt-2 pt-2 border-t border-gray-700/50 text-gray-400">
+                          <div className="mb-1 text-gray-200">{EXCLUDED_LABEL} {excluded.length} 人：</div>
+                          {excluded.map(({ player, rank }) =>
+                            renderPlayer(player, copyShowIndex ? `#${rank} ` : '', player.playerId || `rank-${rank}`))}
                         </div>
                       )}
                     </>
