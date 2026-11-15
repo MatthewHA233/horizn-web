@@ -267,6 +267,10 @@ export default function CopyRankModal({
     return copyShowNewMark && weeks && p.playerInfo?.joinDate ? formatJoinDate(p.playerInfo.joinDate) : null
   }
 
+  // 剔除群外开启时，只因在审核群而保留的成员（不在内群）名字后标「（审核群）」
+  const getGroupTag = (p) =>
+    excludeOuter && p.playerId && roster?.reviewOnlyIds?.has(p.playerId) ? '（审核群）' : ''
+
   // 写剪贴板（不支持 Clipboard API 时退回 execCommand）
   const copyToClipboard = (text, successMessage, toastOptions) => {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -302,7 +306,7 @@ export default function CopyRankModal({
     const { selected, excludedSections, title } = selection
 
     const formatLine = (p, prefix) => {
-      let line = `${prefix}${p.name}`
+      let line = `${prefix}${p.name}${getGroupTag(p)}`
       if (copyShowId && p.playerId) line += ` (${p.playerId})`
       const joinDateStr = getJoinDateLabel(p)
       if (joinDateStr) line += ` ${joinDateStr}`
@@ -333,7 +337,8 @@ export default function CopyRankModal({
     if (copyShowValues) headers.push(tabName)
 
     const buildRow = (p, rankCell) => {
-      const row = copyShowIndex ? [rankCell, p.name] : [p.name]
+      const name = `${p.name}${getGroupTag(p)}`
+      const row = copyShowIndex ? [rankCell, name] : [name]
       if (copyShowId) row.push(p.playerId || '')
       if (copyShowNewMark) row.push(getJoinDateLabel(p) || '')
       if (copyShowValues) row.push(p.value)
@@ -803,7 +808,7 @@ export default function CopyRankModal({
                     const joinDateStr = getJoinDateLabel(p)
                     return (
                       <div key={key}>
-                        {prefix}{p.name}
+                        {prefix}{p.name}{getGroupTag(p)}
                         {copyShowId && p.playerId && (
                           <span className="text-gray-500"> ({p.playerId})</span>
                         )}

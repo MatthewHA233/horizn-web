@@ -1081,6 +1081,7 @@ export function removeCopyRankAdmin(playerId) {
  * 与 getQQMembers 不同：任一名单失败直接抛错，调用方据此暂停复制，避免拿空名单误判
  * @returns {Promise<{
  *   playerIds: Set<string>,
+ *   reviewOnlyIds: Set<string>,
  *   unbound: Array<{qqId: number, name: string}>,
  *   reviewUnregistered: Array<{qqId: number, name: string}>
  * }>}
@@ -1102,11 +1103,13 @@ export async function getGroupRoster() {
     ...innerRows.filter(qq => qq.is_ignored).map(qq => String(qq.qq_id)),
   ])
 
+  const innerIds = new Set(inGroup.filter(qq => qq.member?.player_id).map(qq => qq.member.player_id))
+  const reviewIds = reviewRows.filter(row => row.player_id).map(row => row.player_id)
+
   return {
-    playerIds: new Set([
-      ...inGroup.filter(qq => qq.member?.player_id).map(qq => qq.member.player_id),
-      ...reviewRows.filter(row => row.player_id).map(row => row.player_id),
-    ]),
+    playerIds: new Set([...innerIds, ...reviewIds]),
+    // 只因在审核群而保留的成员（不在内群），复制名单里名字后标「（审核群）」
+    reviewOnlyIds: new Set(reviewIds.filter(id => !innerIds.has(id))),
     unbound: inGroup
       .filter(qq => !qq.member && !qq.is_ignored)
       .map(qq => ({ qqId: qq.qq_id, name: qqName(qq) })),
