@@ -454,21 +454,6 @@ export default function CopyRankModal({
 
         {/* 内容区 */}
         <div className="px-4 sm:px-5 py-4 space-y-3">
-          {/* 设置面板展开时替换筛选和预览区，弹窗高度不变 */}
-          {showAdminSettings ? (
-            <CopyRankAdminSettings
-              admins={admins}
-              error={adminsError}
-              candidates={getSelectedData()?.allData || []}
-              onChange={setAdmins}
-              onReload={() => {
-                setAdmins(null)
-                setAdminsReloadKey(key => key + 1)
-              }}
-              onClose={() => setShowAdminSettings(false)}
-            />
-          ) : (
-          <>
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
@@ -850,8 +835,6 @@ export default function CopyRankModal({
               </div>
             </div>
           )}
-          </>
-          )}
         </div>
 
         {/* 底部按钮 */}
@@ -884,6 +867,21 @@ export default function CopyRankModal({
           </button>
         </div>
       </div>
+
+      {/* 管理名单设置弹窗 */}
+      {showAdminSettings && (
+        <CopyRankAdminSettings
+          admins={admins}
+          error={adminsError}
+          candidates={getSelectedData()?.allData || []}
+          onChange={setAdmins}
+          onReload={() => {
+            setAdmins(null)
+            setAdminsReloadKey(key => key + 1)
+          }}
+          onClose={() => setShowAdminSettings(false)}
+        />
+      )}
     </div>
   )
 }
