@@ -1093,6 +1093,8 @@ export async function getGroupRoster() {
   const innerRows = innerResult.data || []
   const reviewRows = reviewResult.data || []
   const inGroup = innerRows.filter(qq => !qq.left_at)
+  // 内群名单为空多半是接口异常：照空名单算会把几乎所有人当成群外剔除，直接报错暂停复制
+  if (inGroup.length === 0) throw new Error('内群名单为空，可能是接口异常，请稍后重试')
   const qqName = qq => qq.card || qq.nickname || String(qq.qq_id)
   // 已在内群名单里（已绑定或已列入内群未绑定提示）或已忽视（非联队成员）的 QQ，审核群不再重复提示
   const skipReviewQQ = new Set([
@@ -1109,7 +1111,7 @@ export async function getGroupRoster() {
       .filter(qq => !qq.member && !qq.is_ignored)
       .map(qq => ({ qqId: qq.qq_id, name: qqName(qq) })),
     reviewUnregistered: reviewRows
-      .filter(row => !row.player_id && !skipReviewQQ.has(String(row.qq_id)))
+      .filter(row => !row.player_id && !row.is_ignored && !skipReviewQQ.has(String(row.qq_id)))
       .map(row => ({ qqId: row.qq_id, name: qqName(row) })),
   }
 }

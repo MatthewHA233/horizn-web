@@ -148,7 +148,7 @@ export async function GET(request) {
       // 审核群在群名单 + 自报游戏 ID（表仅 service_role 可读；已退群的只标记 left_at，这里排除）
       const { data, error } = await supabase
         .from('horizn_review_qq_accounts')
-        .select('qq_id, card, nickname, player_id')
+        .select('qq_id, card, nickname, player_id, is_ignored')
         .is('left_at', null)
       if (error) throw error
       return NextResponse.json({ data: data || [] }, { headers: { 'Cache-Control': 'no-store' } })
