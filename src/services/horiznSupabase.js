@@ -1053,6 +1053,30 @@ export async function getQQMembers() {
 }
 
 /**
+ * 复制排名名单的剔除管理名单（云端共享）；失败直接抛错，调用方据此暂停复制
+ * @returns {Promise<Array<{playerId: string, name: string, excluded: boolean, active: boolean}>>}
+ */
+export async function getCopyRankAdmins() {
+  const result = await adminApi('?resource=copy-rank-admins')
+  return result.data || []
+}
+
+/** 加入剔除管理名单（默认不勾选） */
+export function addCopyRankAdmin(playerId) {
+  return adminAction('add-copy-rank-admin', { playerId })
+}
+
+/** 勾选 / 取消勾选：勾选的管理复制名单时剔除 */
+export function setCopyRankAdminExcluded(playerId, excluded) {
+  return adminAction('set-copy-rank-admin-excluded', { playerId, excluded })
+}
+
+/** 移出剔除管理名单 */
+export function removeCopyRankAdmin(playerId) {
+  return adminAction('remove-copy-rank-admin', { playerId })
+}
+
+/**
  * 获取内群 + 审核群在群名单，供复制排名名单剔除两个群都不在的成员
  * 与 getQQMembers 不同：任一名单失败直接抛错，调用方据此暂停复制，避免拿空名单误判
  * @returns {Promise<{

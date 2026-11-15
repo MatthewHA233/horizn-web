@@ -1,30 +1,46 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import toast from 'react-hot-toast'
-import { getGroupRoster } from '@/services/horiznSupabase'
-
-// 复制名单默认剔除的管理（不参与排名），加人在这里加 player_id
-const ADMIN_MEMBERS = [
-  { playerId: '4AA67B15FC3585E7', label: '宝哥' }, // 地平线『No.000』柒宝
-]
-const ADMIN_PLAYER_IDS = new Set(ADMIN_MEMBERS.map(member => member.playerId))
+import { getCopyRankAdmins, getGroupRoster } from '@/services/horiznSupabase'
+import CopyRankAdminSettings from './CopyRankAdminSettings'
 
 // 剔除名单的标题（复制文本 / 表格 / 预览共用）
 const EXCLUDED_ADMIN_LABEL = '已剔除管理'
 const EXCLUDED_OUTER_LABEL = '已剔除非内群非审核群成员'
 
-function ExcludeToggle({ active, onClick, title, children }) {
+/**
+ * 剔除开关；传 onSettings 时右侧内嵌一个齿轮设置按钮
+ */
+function ExcludeToggle({ active, onClick, title, children, onSettings, settingsOpen }) {
+  const settingsTone = active
+    ? `border-rose-400/60 hover:bg-rose-500 ${settingsOpen ? 'bg-rose-500' : ''}`
+    : `border-gray-600 hover:text-white ${settingsOpen ? 'bg-gray-700/60 text-white' : ''}`
   return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`px-2 py-0.5 text-[10px] font-medium rounded-md border transition-all whitespace-nowrap ${
-        active
-          ? 'bg-rose-600 border-rose-500 text-white'
-          : 'border-gray-600 text-gray-400 hover:text-white hover:border-gray-500'
+    <div
+      className={`flex items-stretch rounded-md border text-[10px] font-medium overflow-hidden transition-all ${
+        active ? 'bg-rose-600 border-rose-500 text-white' : 'border-gray-600 text-gray-400'
       }`}
     >
-      {children}
-    </button>
+      <button
+        onClick={onClick}
+        title={title}
+        className={`px-2 py-0.5 whitespace-nowrap ${active ? '' : 'hover:text-white'}`}
+      >
+        {children}
+      </button>
+      {onSettings && (
+        <button
+          onClick={onSettings}
+          title="设置名单"
+          aria-label="设置名单"
+          className={`px-1 flex items-center border-l transition-colors ${settingsTone}`}
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -54,8 +70,12 @@ export default function CopyRankModal({
   const [thresholdValue, setThresholdValue] = useState('')
   // 剔除群外成员（只保留在内群或审核群里的）：roster = { playerIds, unbound, reviewUnregistered }，每次打开弹窗重新拉取
   const [excludeOuter, setExcludeOuter] = useState(false)
-  // 剔除管理（ADMIN_MEMBERS），默认开启
+  // 剔除管理，默认开启：admins = 云端管理名单（勾选的 excluded=true 才剔除），每次打开弹窗重新拉取
   const [excludeAdmins, setExcludeAdmins] = useState(true)
+  const [admins, setAdmins] = useState(null)
+  const [adminsError, setAdminsError] = useState(null)
+  const [adminsReloadKey, setAdminsReloadKey] = useState(0)
+  const [showAdminSettings, setShowAdminSettings] = useState(false)
   const [roster, setRoster] = useState(null)
   const [rosterError, setRosterError] = useState(null)
 
@@ -104,6 +124,17 @@ export default function CopyRankModal({
       .catch(err => { if (!cancelled) setRosterError(err.message || '群名单加载失败') })
     return () => { cancelled = true }
   }, [show, excludeOuter, roster])
+
+  // 开启剔除管理或打开设置时拉取管理名单
+  useEffect(() => {
+    if (!show || admins || !(excludeAdmins || showAdminSettings)) return
+    let cancelled = false
+    setAdminsError(null)
+    getCopyRankAdmins()
+      .then(result => { if (!cancelled) setAdmins(result) })
+      .catch(err => { if (!cancelled) setAdminsError(err.message || '管理名单加载失败') })
+    return () => { cancelled = true }
+  }, [show, admins, excludeAdmins, showAdminSettings, adminsReloadKey])
 
   // 清理定时器
   const handlePressEnd = useCallback(() => {
@@ -174,6 +205,8 @@ export default function CopyRankModal({
 
   // 剔除群外已开启但名单未就绪（加载中/失败）：禁止复制，避免名单分错
   const rosterPending = excludeOuter && !roster
+  // 剔除管理已开启但管理名单未就绪：同样禁止复制，避免把管理带出去
+  const adminsPending = excludeAdmins && !admins
 
   /**
    * 按当前筛选条件选出名单（复制文本 / 复制表格 / 预览共用）
@@ -191,12 +224,15 @@ export default function CopyRankModal({
     const tabName = copyDataType === 'weekly' ? '周活跃度' : '赛季活跃度'
     const formattedTime = formatTimestamp(selectedData.timestamp)
     const groupIds = excludeOuter ? roster?.playerIds : null
+    const adminIds = excludeAdmins && admins
+      ? new Set(admins.filter(admin => admin.excluded).map(admin => admin.playerId))
+      : null
     const selected = []
     const excludedAdmins = []
     const excludedOuter = []
     // 先剔管理，再剔群外（只保留内群已绑定或审核群已登记 ID 的在群成员）
     const place = (p, rank) => {
-      if (excludeAdmins && p.playerId && ADMIN_PLAYER_IDS.has(p.playerId)) excludedAdmins.push({ player: p, rank })
+      if (adminIds && p.playerId && adminIds.has(p.playerId.toUpperCase())) excludedAdmins.push({ player: p, rank })
       else if (groupIds && !(p.playerId && groupIds.has(p.playerId))) excludedOuter.push({ player: p, rank })
       else selected.push(p)
     }
@@ -324,6 +360,9 @@ export default function CopyRankModal({
     // 群名单下次打开重新拉取（开关状态保留）
     setRoster(null)
     setRosterError(null)
+    setAdmins(null)
+    setAdminsError(null)
+    setShowAdminSettings(false)
     onClose()
   }
 
@@ -333,11 +372,12 @@ export default function CopyRankModal({
     (!currentData && !preloadedData[copyDataType]) ||
     (copyMode === 'rank' && (!copyCount || parseInt(copyCount) <= 0)) ||
     (copyMode === 'threshold' && thresholdValue === '') ||
-    rosterPending
+    rosterPending ||
+    adminsPending
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4">
-      <div className={`bg-gray-800/95 backdrop-blur-xl rounded-xl border border-gray-700/50 shadow-2xl w-full max-w-md overflow-hidden ${isMobile ? 'select-none' : ''}`}>
+      <div className={`bg-gray-800/95 backdrop-blur-xl rounded-xl border border-gray-700/50 shadow-2xl w-full max-w-md max-h-full flex flex-col overflow-hidden ${isMobile ? 'select-none' : ''}`}>
         {/* 顶部装饰条 */}
         <div className="h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500"></div>
 
@@ -387,7 +427,9 @@ export default function CopyRankModal({
             <ExcludeToggle
               active={excludeAdmins}
               onClick={() => setExcludeAdmins(v => !v)}
-              title={`剔除管理（${ADMIN_MEMBERS.map(member => member.label).join('、')}），不参与排名`}
+              title="剔除管理名单里勾选的成员，不参与排名"
+              onSettings={() => setShowAdminSettings(v => !v)}
+              settingsOpen={showAdminSettings}
             >
               剔除管理
             </ExcludeToggle>
@@ -410,7 +452,20 @@ export default function CopyRankModal({
         </div>
 
         {/* 内容区 */}
-        <div className="px-4 sm:px-5 py-4 space-y-3">
+        <div className="px-4 sm:px-5 py-4 space-y-3 min-h-0 overflow-y-auto custom-scrollbar">
+          {showAdminSettings && (
+            <CopyRankAdminSettings
+              admins={admins}
+              error={adminsError}
+              candidates={getSelectedData()?.allData || []}
+              onChange={setAdmins}
+              onReload={() => {
+                setAdmins(null)
+                setAdminsReloadKey(key => key + 1)
+              }}
+              onClose={() => setShowAdminSettings(false)}
+            />
+          )}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
@@ -738,6 +793,11 @@ export default function CopyRankModal({
 
                   // 红字提示（仅预览，不复制）：名单加载状态 / 两个群里没对上游戏成员的 QQ 需人工核对
                   const notices = []
+                  if (excludeAdmins && adminsError) {
+                    notices.push(`⚠ 管理名单加载失败：${adminsError}。已暂停复制，可关闭「剔除管理」后复制`)
+                  } else if (adminsPending) {
+                    notices.push('管理名单加载中…')
+                  }
                   if (excludeOuter && rosterError) {
                     notices.push(`⚠ 内群/审核群名单加载失败：${rosterError}。已暂停复制，可关闭「剔除群外」后复制完整名单`)
                   } else if (rosterPending) {

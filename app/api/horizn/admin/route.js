@@ -10,6 +10,7 @@ import {
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { buildAdminLoginProfiles, filterPublicAdminLoginRows } from '@/lib/adminLoginAudit'
 import { adminLoginLocationKey } from '@/lib/adminLoginLocation'
+import { getLatestHttpTrustedName } from '@/lib/horiznMemberNames'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -56,6 +57,59 @@ async function rpc(supabase, name, params) {
   return data ?? { success: true }
 }
 
+const PLAYER_ID_PATTERN = /^[0-9A-F]{12,16}$/
+
+function normalizePlayerId(value) {
+  const playerId = typeof value === 'string' ? value.trim().toUpperCase() : ''
+  return PLAYER_ID_PATTERN.test(playerId) ? playerId : null
+}
+
+const seenAt = (variant) => (variant.last_seen ? Date.parse(variant.last_seen) || 0 : 0)
+
+/**
+ * 成员展示名：最新 HTTP 可信名 > 真名 > 最近出现的历史名（排除 OCR 噪声）> player_id
+ */
+function memberDisplayName(member, playerId) {
+  const variants = member?.name_variants || []
+  const primaryName = variants.find(variant => variant.is_primary)?.name
+  const trusted = getLatestHttpTrustedName({ ...member, player_id: playerId, primary_name: primaryName })
+  if (trusted && trusted !== playerId) return trusted
+  const latestHistory = [...variants]
+    .filter(variant => variant.name && variant.representative !== false)
+    .sort((a, b) => seenAt(b) - seenAt(a))[0]
+  return latestHistory?.name || playerId
+}
+
+/**
+ * 复制排名名单的剔除管理名单，附展示名
+ */
+async function listCopyRankAdmins(supabase) {
+  const { data: rows, error } = await supabase
+    .from('horizn_copy_rank_admins')
+    .select('player_id, excluded')
+    .order('created_at')
+    .order('player_id')
+  if (error) throw error
+  if (!rows?.length) return []
+
+  const { data: members, error: memberError } = await supabase
+    .from('horizn_members')
+    .select('player_id, active, name_variants:horizn_name_variants(name, source, last_seen, is_primary, representative)')
+    .in('player_id', rows.map(row => row.player_id))
+  if (memberError) throw memberError
+
+  const membersById = new Map((members || []).map(member => [member.player_id, member]))
+  return rows.map(row => {
+    const member = membersById.get(row.player_id)
+    return {
+      playerId: row.player_id,
+      excluded: row.excluded,
+      active: member?.active ?? false,
+      name: memberDisplayName(member, row.player_id),
+    }
+  })
+}
+
 export async function GET(request) {
   const resource = new URL(request.url).searchParams.get('resource')
   const requiredRole = ['members', 'hull', 'blacklist-else', 'login-audit'].includes(resource)
@@ -98,6 +152,10 @@ export async function GET(request) {
         .is('left_at', null)
       if (error) throw error
       return NextResponse.json({ data: data || [] }, { headers: { 'Cache-Control': 'no-store' } })
+    }
+    if (resource === 'copy-rank-admins') {
+      const data = await listCopyRankAdmins(supabase)
+      return NextResponse.json({ data }, { headers: { 'Cache-Control': 'no-store' } })
     }
     if (resource === 'monthly-rules') {
       const searchParams = new URL(request.url).searchParams
@@ -328,6 +386,42 @@ export async function POST(request) {
           .from('horizn_qq_accounts')
           .update({ left_at: body.leftAt || null, updated_at: new Date().toISOString() })
           .eq('qq_id', body.qqId)
+        if (error) throw error
+        result = { success: true }
+        break
+      }
+      case 'add-copy-rank-admin': {
+        const playerId = normalizePlayerId(body.playerId)
+        if (!playerId) return fail('玩家ID格式无效')
+        const { data: member, error: memberError } = await supabase
+          .from('horizn_members')
+          .select('player_id')
+          .eq('player_id', playerId)
+          .maybeSingle()
+        if (memberError) throw memberError
+        if (!member) return fail('成员不存在')
+        const { error } = await supabase
+          .from('horizn_copy_rank_admins')
+          .upsert({ player_id: playerId }, { onConflict: 'player_id', ignoreDuplicates: true })
+        if (error) throw error
+        result = { success: true }
+        break
+      }
+      case 'set-copy-rank-admin-excluded': {
+        const playerId = normalizePlayerId(body.playerId)
+        if (!playerId || typeof body.excluded !== 'boolean') return fail('参数无效')
+        const { error } = await supabase
+          .from('horizn_copy_rank_admins')
+          .update({ excluded: body.excluded, updated_at: new Date().toISOString() })
+          .eq('player_id', playerId)
+        if (error) throw error
+        result = { success: true }
+        break
+      }
+      case 'remove-copy-rank-admin': {
+        const playerId = normalizePlayerId(body.playerId)
+        if (!playerId) return fail('玩家ID格式无效')
+        const { error } = await supabase.from('horizn_copy_rank_admins').delete().eq('player_id', playerId)
         if (error) throw error
         result = { success: true }
         break
