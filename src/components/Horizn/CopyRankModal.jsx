@@ -2,8 +2,31 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { getGroupRoster } from '@/services/horiznSupabase'
 
+// 复制名单默认剔除的管理（不参与排名），加人在这里加 player_id
+const ADMIN_MEMBERS = [
+  { playerId: '4AA67B15FC3585E7', label: '宝哥' }, // 地平线『No.000』柒宝
+]
+const ADMIN_PLAYER_IDS = new Set(ADMIN_MEMBERS.map(member => member.playerId))
+
 // 剔除名单的标题（复制文本 / 表格 / 预览共用）
-const EXCLUDED_LABEL = '已剔除非内群非审核群成员'
+const EXCLUDED_ADMIN_LABEL = '已剔除管理'
+const EXCLUDED_OUTER_LABEL = '已剔除非内群非审核群成员'
+
+function ExcludeToggle({ active, onClick, title, children }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`px-2 py-0.5 text-[10px] font-medium rounded-md border transition-all whitespace-nowrap ${
+        active
+          ? 'bg-rose-600 border-rose-500 text-white'
+          : 'border-gray-600 text-gray-400 hover:text-white hover:border-gray-500'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
 
 /**
  * 复制排名名单弹窗组件
@@ -31,6 +54,8 @@ export default function CopyRankModal({
   const [thresholdValue, setThresholdValue] = useState('')
   // 剔除群外成员（只保留在内群或审核群里的）：roster = { playerIds, unbound, reviewUnregistered }，每次打开弹窗重新拉取
   const [excludeOuter, setExcludeOuter] = useState(false)
+  // 剔除管理（ADMIN_MEMBERS），默认开启
+  const [excludeAdmins, setExcludeAdmins] = useState(true)
   const [roster, setRoster] = useState(null)
   const [rosterError, setRosterError] = useState(null)
 
@@ -152,7 +177,11 @@ export default function CopyRankModal({
 
   /**
    * 按当前筛选条件选出名单（复制文本 / 复制表格 / 预览共用）
-   * @returns {{selected: Array, excluded: Array<{player, rank}>, title: string} | null}
+   * @returns {{
+   *   selected: Array,
+   *   excludedSections: Array<{label: string, items: Array<{player, rank}>}>,
+   *   title: string
+   * } | null}
    */
   const buildSelection = () => {
     const selectedData = getSelectedData()
@@ -162,32 +191,38 @@ export default function CopyRankModal({
     const tabName = copyDataType === 'weekly' ? '周活跃度' : '赛季活跃度'
     const formattedTime = formatTimestamp(selectedData.timestamp)
     const groupIds = excludeOuter ? roster?.playerIds : null
-    // 未开启时全部保留；开启后只保留内群已绑定或审核群已登记 ID 的在群成员
-    const keep = (p) => !groupIds || Boolean(p.playerId && groupIds.has(p.playerId))
     const selected = []
-    const excluded = []
+    const excludedAdmins = []
+    const excludedOuter = []
+    // 先剔管理，再剔群外（只保留内群已绑定或审核群已登记 ID 的在群成员）
+    const place = (p, rank) => {
+      if (excludeAdmins && p.playerId && ADMIN_PLAYER_IDS.has(p.playerId)) excludedAdmins.push({ player: p, rank })
+      else if (groupIds && !(p.playerId && groupIds.has(p.playerId))) excludedOuter.push({ player: p, rank })
+      else selected.push(p)
+    }
+    const withSections = (title) => ({
+      selected,
+      title,
+      excludedSections: [
+        { label: EXCLUDED_ADMIN_LABEL, items: excludedAdmins },
+        { label: EXCLUDED_OUTER_LABEL, items: excludedOuter },
+      ].filter(section => section.items.length > 0),
+    })
 
     if (copyMode === 'rank') {
-      // 按名次依次挑群内成员凑满人数，途中跳过的群外成员进剔除名单
+      // 按名次依次挑成员凑满人数，途中跳过的管理 / 群外成员进剔除名单
       const count = parseInt(copyCount) || 20
-      for (let i = 0; i < allData.length && selected.length < count; i++) {
-        if (keep(allData[i])) selected.push(allData[i])
-        else excluded.push({ player: allData[i], rank: i + 1 })
-      }
-      const title = `${formattedTime} HORIZN地平线${tabName}前${count}名${groupIds ? '（仅内群/审核群）' : ''}`
-      return { selected, excluded, title }
+      for (let i = 0; i < allData.length && selected.length < count; i++) place(allData[i], i + 1)
+      return withSections(`${formattedTime} HORIZN地平线${tabName}前${count}名${groupIds ? '（仅内群/审核群）' : ''}`)
     }
 
     const threshold = parseInt(thresholdValue) || 0
     allData.forEach((p, i) => {
       const matched = thresholdCompare === 'gte' ? p.value >= threshold : p.value <= threshold
-      if (!matched) return
-      if (keep(p)) selected.push(p)
-      else excluded.push({ player: p, rank: i + 1 })
+      if (matched) place(p, i + 1)
     })
     const op = thresholdCompare === 'gte' ? '≥' : '≤'
-    const title = `${formattedTime} HORIZN地平线${tabName}${op}${threshold}（${groupIds ? '仅内群/审核群，' : ''}共${selected.length}人）`
-    return { selected, excluded, title }
+    return withSections(`${formattedTime} HORIZN地平线${tabName}${op}${threshold}（${groupIds ? '仅内群/审核群，' : ''}共${selected.length}人）`)
   }
 
   // 新来成员的入队日期标注（勾了「新来」才有）
@@ -219,14 +254,16 @@ export default function CopyRankModal({
     document.body.removeChild(textArea)
   }
 
-  const copiedMessage = ({ selected, excluded }, suffix = '') =>
-    `已复制 ${selected.length} 人${excluded.length ? `（附剔除 ${excluded.length} 人）` : ''}${suffix}`
+  const copiedMessage = ({ selected, excludedSections }, suffix = '') => {
+    const excludedCount = excludedSections.reduce((sum, section) => sum + section.items.length, 0)
+    return `已复制 ${selected.length} 人${excludedCount ? `（附剔除 ${excludedCount} 人）` : ''}${suffix}`
+  }
 
   // 复制名单：正式名单在前，剔除名单附在最后（保留原名次）
   const handleCopyList = () => {
     const selection = buildSelection()
     if (!selection) return
-    const { selected, excluded, title } = selection
+    const { selected, excludedSections, title } = selection
 
     const formatLine = (p, prefix) => {
       let line = `${prefix}${p.name}`
@@ -238,11 +275,11 @@ export default function CopyRankModal({
     }
 
     const lines = selected.map((p, i) => formatLine(p, copyShowIndex ? `${i + 1}. ` : ''))
-    let text = `${title}\n${lines.join('\n')}`
-    if (excluded.length > 0) {
-      const excludedLines = excluded.map(({ player, rank }) => formatLine(player, copyShowIndex ? `#${rank} ` : ''))
-      text += `\n\n${EXCLUDED_LABEL} ${excluded.length} 人：\n${excludedLines.join('\n')}`
-    }
+    const sectionTexts = excludedSections.map(({ label, items }) => {
+      const itemLines = items.map(({ player, rank }) => formatLine(player, copyShowIndex ? `#${rank} ` : ''))
+      return `${label} ${items.length} 人：\n${itemLines.join('\n')}`
+    })
+    const text = [`${title}\n${lines.join('\n')}`, ...sectionTexts].join('\n\n')
 
     copyToClipboard(text, copiedMessage(selection))
   }
@@ -251,7 +288,7 @@ export default function CopyRankModal({
   const handleCopyAsTable = () => {
     const selection = buildSelection()
     if (!selection) return
-    const { selected, excluded } = selection
+    const { selected, excludedSections } = selection
     const tabName = copyDataType === 'weekly' ? '周活跃度' : '赛季活跃度'
 
     const headers = copyShowIndex ? ['排名', '成员名'] : ['成员名']
@@ -268,10 +305,10 @@ export default function CopyRankModal({
     }
 
     const lines = [headers.join('\t'), ...selected.map((p, i) => buildRow(p, i + 1))]
-    if (excluded.length > 0) {
-      lines.push('', `${EXCLUDED_LABEL} ${excluded.length} 人`)
-      lines.push(...excluded.map(({ player, rank }) => buildRow(player, `#${rank}`)))
-    }
+    excludedSections.forEach(({ label, items }) => {
+      lines.push('', `${label} ${items.length} 人`)
+      lines.push(...items.map(({ player, rank }) => buildRow(player, `#${rank}`)))
+    })
 
     copyToClipboard(lines.join('\n'), copiedMessage(selection, '（表格格式）'), { duration: 2000 })
   }
@@ -305,7 +342,7 @@ export default function CopyRankModal({
         <div className="h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500"></div>
 
         {/* 标题栏 */}
-        <div className="px-4 sm:px-5 py-3 border-b border-gray-700/50 flex items-center justify-between">
+        <div className="px-4 sm:px-5 py-3 border-b border-gray-700/50 flex flex-wrap items-center gap-y-2">
           <div className="flex items-center gap-2">
             <h3 className="text-sm sm:text-base font-semibold text-white flex items-center gap-1.5">
               <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -345,28 +382,31 @@ export default function CopyRankModal({
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* 剔除非内群成员开关 */}
-            <button
+          {/* 剔除开关：窄屏换到第二行靠右，宽屏与关闭按钮同一行 */}
+          <div className="order-last w-full flex justify-end gap-1.5 sm:order-none sm:w-auto sm:ml-auto">
+            <ExcludeToggle
+              active={excludeAdmins}
+              onClick={() => setExcludeAdmins(v => !v)}
+              title={`剔除管理（${ADMIN_MEMBERS.map(member => member.label).join('、')}），不参与排名`}
+            >
+              剔除管理
+            </ExcludeToggle>
+            <ExcludeToggle
+              active={excludeOuter}
               onClick={() => setExcludeOuter(v => !v)}
               title="只保留内群或审核群里的成员，剔除两个群都不在的（审核群已退群的不算）"
-              className={`px-2 py-0.5 text-[10px] font-medium rounded-md border transition-all whitespace-nowrap ${
-                excludeOuter
-                  ? 'bg-rose-600 border-rose-500 text-white'
-                  : 'border-gray-600 text-gray-400 hover:text-white hover:border-gray-500'
-              }`}
             >
               剔除群外
-            </button>
-            <button
-              onClick={handleClose}
-              className="text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg p-1 transition-all"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            </ExcludeToggle>
           </div>
+          <button
+            onClick={handleClose}
+            className="ml-auto sm:ml-1.5 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg p-1 transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
         {/* 内容区 */}
@@ -694,7 +734,7 @@ export default function CopyRankModal({
                 {(() => {
                   const selection = buildSelection()
                   if (!selection) return null
-                  const { selected: selectedPlayers, excluded, title } = selection
+                  const { selected: selectedPlayers, excludedSections, title } = selection
 
                   // 红字提示（仅预览，不复制）：名单加载状态 / 两个群里没对上游戏成员的 QQ 需人工核对
                   const notices = []
@@ -734,13 +774,13 @@ export default function CopyRankModal({
                       ))}
                       <div className="mb-2 text-gray-200">{title}</div>
                       {selectedPlayers.map((p, i) => renderPlayer(p, copyShowIndex ? `${i + 1}. ` : '', i))}
-                      {excluded.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-gray-700/50 text-gray-400">
-                          <div className="mb-1 text-gray-200">{EXCLUDED_LABEL} {excluded.length} 人：</div>
-                          {excluded.map(({ player, rank }) =>
+                      {excludedSections.map(({ label, items }) => (
+                        <div key={label} className="mt-2 pt-2 border-t border-gray-700/50 text-gray-400">
+                          <div className="mb-1 text-gray-200">{label} {items.length} 人：</div>
+                          {items.map(({ player, rank }) =>
                             renderPlayer(player, copyShowIndex ? `#${rank} ` : '', player.playerId || `rank-${rank}`))}
                         </div>
-                      )}
+                      ))}
                     </>
                   )
                 })()}
