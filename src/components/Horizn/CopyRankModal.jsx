@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import toast from 'react-hot-toast'
+import { getInnerGroupRoster } from '@/services/horiznSupabase'
 
 /**
  * 复制排名名单弹窗组件
@@ -24,6 +25,10 @@ export default function CopyRankModal({
   const [copyMode, setCopyMode] = useState('rank')
   const [thresholdCompare, setThresholdCompare] = useState('gte')
   const [thresholdValue, setThresholdValue] = useState('')
+  // 剔除内群成员：roster = { playerIds, unbound }，每次打开弹窗重新拉取
+  const [excludeInner, setExcludeInner] = useState(false)
+  const [innerRoster, setInnerRoster] = useState(null)
+  const [innerError, setInnerError] = useState(null)
 
   // refs
   const pressTimerRef = useRef(null)
@@ -59,6 +64,17 @@ export default function CopyRankModal({
       setThresholdValue(getDefaultThreshold('gte'))
     }
   }, [show, activeTab])
+
+  // 开启剔除内群时拉取在群名单
+  useEffect(() => {
+    if (!show || !excludeInner || innerRoster) return
+    let cancelled = false
+    setInnerError(null)
+    getInnerGroupRoster()
+      .then(roster => { if (!cancelled) setInnerRoster(roster) })
+      .catch(err => { if (!cancelled) setInnerError(err.message || '内群名单加载失败') })
+    return () => { cancelled = true }
+  }, [show, excludeInner, innerRoster])
 
   // 清理定时器
   const handlePressEnd = useCallback(() => {
@@ -127,30 +143,53 @@ export default function CopyRankModal({
     return `${month}.${day}入`
   }
 
-  // 复制名单
-  const handleCopyList = () => {
-    const selectedData = getSelectedData()
-    if (!selectedData || !selectedData.allData) return
+  // 剔除内群已开启但名单未就绪（加载中/失败）：禁止复制，避免把内群成员带出去
+  const innerPending = excludeInner && !innerRoster
 
-    let selectedPlayers = []
-    let title = ''
+  /**
+   * 按当前筛选条件选出名单（复制文本 / 复制表格 / 预览共用）
+   * @returns {{selected: Array, excluded: Array<{player, rank}>, title: string} | null}
+   */
+  const buildSelection = () => {
+    const selectedData = getSelectedData()
+    if (!selectedData?.allData) return null
+
+    const allData = selectedData.allData
     const tabName = copyDataType === 'weekly' ? '周活跃度' : '赛季活跃度'
     const formattedTime = formatTimestamp(selectedData.timestamp)
+    const innerIds = excludeInner ? innerRoster?.playerIds : null
+    const isInner = (p) => Boolean(innerIds && p.playerId && innerIds.has(p.playerId))
+    const selected = []
+    const excluded = []
 
     if (copyMode === 'rank') {
+      // 按名次依次挑非内群成员凑满人数，途中跳过的内群成员进剔除名单
       const count = parseInt(copyCount) || 20
-      selectedPlayers = selectedData.allData.slice(0, count)
-      title = `${formattedTime} HORIZN地平线${tabName}前${count}名`
-    } else {
-      const threshold = parseInt(thresholdValue) || 0
-      if (thresholdCompare === 'gte') {
-        selectedPlayers = selectedData.allData.filter(p => p.value >= threshold)
-        title = `${formattedTime} HORIZN地平线${tabName}≥${threshold}（共${selectedPlayers.length}人）`
-      } else {
-        selectedPlayers = selectedData.allData.filter(p => p.value <= threshold)
-        title = `${formattedTime} HORIZN地平线${tabName}≤${threshold}（共${selectedPlayers.length}人）`
+      for (let i = 0; i < allData.length && selected.length < count; i++) {
+        if (isInner(allData[i])) excluded.push({ player: allData[i], rank: i + 1 })
+        else selected.push(allData[i])
       }
+      const title = `${formattedTime} HORIZN地平线${tabName}前${count}名${innerIds ? '（不含内群）' : ''}`
+      return { selected, excluded, title }
     }
+
+    const threshold = parseInt(thresholdValue) || 0
+    allData.forEach((p, i) => {
+      const matched = thresholdCompare === 'gte' ? p.value >= threshold : p.value <= threshold
+      if (!matched) return
+      if (isInner(p)) excluded.push({ player: p, rank: i + 1 })
+      else selected.push(p)
+    })
+    const op = thresholdCompare === 'gte' ? '≥' : '≤'
+    const title = `${formattedTime} HORIZN地平线${tabName}${op}${threshold}（${innerIds ? '不含内群，' : ''}共${selected.length}人）`
+    return { selected, excluded, title }
+  }
+
+  // 复制名单
+  const handleCopyList = () => {
+    const selection = buildSelection()
+    if (!selection) return
+    const { selected: selectedPlayers, title } = selection
 
     const newMemberMap = currentData?.newMemberMap || {}
     const lines = selectedPlayers.map((p, i) => {
@@ -201,23 +240,10 @@ export default function CopyRankModal({
 
   // 复制为表格格式（TSV）
   const handleCopyAsTable = () => {
-    const selectedData = getSelectedData()
-    if (!selectedData || !selectedData.allData) return
-
-    let selectedPlayers = []
+    const selection = buildSelection()
+    if (!selection) return
+    const selectedPlayers = selection.selected
     const tabName = copyDataType === 'weekly' ? '周活跃度' : '赛季活跃度'
-
-    if (copyMode === 'rank') {
-      const count = parseInt(copyCount) || 20
-      selectedPlayers = selectedData.allData.slice(0, count)
-    } else {
-      const threshold = parseInt(thresholdValue) || 0
-      if (thresholdCompare === 'gte') {
-        selectedPlayers = selectedData.allData.filter(p => p.value >= threshold)
-      } else {
-        selectedPlayers = selectedData.allData.filter(p => p.value <= threshold)
-      }
-    }
 
     // 构建 TSV 格式（Tab分隔）
     const lines = []
@@ -281,10 +307,19 @@ export default function CopyRankModal({
     setThresholdValue(getDefaultThreshold('gte'))
     setManualFrameIndex(null)
     setCopyDataType(activeTab)
+    // 内群名单下次打开重新拉取（开关状态保留）
+    setInnerRoster(null)
+    setInnerError(null)
     onClose()
   }
 
   if (!show) return null
+
+  const copyDisabled =
+    (!currentData && !preloadedData[copyDataType]) ||
+    (copyMode === 'rank' && (!copyCount || parseInt(copyCount) <= 0)) ||
+    (copyMode === 'threshold' && thresholdValue === '') ||
+    innerPending
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4">
@@ -333,14 +368,28 @@ export default function CopyRankModal({
               </button>
             </div>
           </div>
-          <button
-            onClick={handleClose}
-            className="text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg p-1 transition-all"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* 剔除内群成员开关 */}
+            <button
+              onClick={() => setExcludeInner(v => !v)}
+              title="从名单中剔除已在内群（QQ群）的成员"
+              className={`px-2 py-0.5 text-[10px] font-medium rounded-md border transition-all whitespace-nowrap ${
+                excludeInner
+                  ? 'bg-rose-600 border-rose-500 text-white'
+                  : 'border-gray-600 text-gray-400 hover:text-white hover:border-gray-500'
+              }`}
+            >
+              剔除内群
+            </button>
+            <button
+              onClick={handleClose}
+              className="text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg p-1 transition-all"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* 内容区 */}
@@ -657,29 +706,22 @@ export default function CopyRankModal({
               </div>
               <div className={`text-xs text-gray-300 font-mono whitespace-pre-wrap max-h-40 sm:max-h-52 overflow-y-auto custom-scrollbar ${!isMobile ? 'select-text' : ''}`}>
                 {(() => {
-                  const selectedData = getSelectedData()
-                  const tabName = copyDataType === 'weekly' ? '周活跃度' : '赛季活跃度'
-                  const formattedTime = formatTimestamp(selectedData.timestamp)
-
-                  let selectedPlayers = []
-                  let title = ''
-
-                  if (copyMode === 'rank') {
-                    const count = parseInt(copyCount) || 20
-                    selectedPlayers = selectedData.allData.slice(0, count)
-                    title = `${formattedTime} HORIZN地平线${tabName}前${count}名`
-                  } else {
-                    const threshold = parseInt(thresholdValue) || 0
-                    if (thresholdCompare === 'gte') {
-                      selectedPlayers = selectedData.allData.filter(p => p.value >= threshold)
-                      title = `${formattedTime} HORIZN地平线${tabName}≥${threshold}（共${selectedPlayers.length}人）`
-                    } else {
-                      selectedPlayers = selectedData.allData.filter(p => p.value <= threshold)
-                      title = `${formattedTime} HORIZN地平线${tabName}≤${threshold}（共${selectedPlayers.length}人）`
-                    }
-                  }
+                  const selection = buildSelection()
+                  if (!selection) return null
+                  const { selected: selectedPlayers, excluded, title } = selection
+                  const unbound = excludeInner ? innerRoster?.unbound || [] : []
 
                   const newMemberMap = currentData?.newMemberMap || {}
+
+                  // 红字提示（仅预览，不复制）：名单加载状态 / 内群未绑定 QQ 需人工核对
+                  let innerNotice = null
+                  if (excludeInner && innerError) {
+                    innerNotice = `⚠ 内群名单加载失败：${innerError}。已暂停复制，可关闭「剔除内群」后复制完整名单`
+                  } else if (innerPending) {
+                    innerNotice = '内群名单加载中…'
+                  } else if (unbound.length > 0) {
+                    innerNotice = `⚠ 内群有 ${unbound.length} 个QQ未绑定游戏成员，无法自动剔除，请人工核对以下QQ名片是否在清单中：${unbound.map(u => u.name).join('、')}`
+                  }
 
                   const titleElement = <div className="mb-2 text-gray-200">{title}</div>
                   const listElements = selectedPlayers.map((p, i) => {
@@ -703,8 +745,23 @@ export default function CopyRankModal({
 
                   return (
                     <>
+                      {innerNotice && (
+                        <div className="mb-2 text-red-400 font-sans">{innerNotice}</div>
+                      )}
                       {titleElement}
                       {listElements}
+                      {excluded.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-gray-700/50 text-gray-500">
+                          <div className="mb-1 font-sans">已剔除内群成员 {excluded.length} 人（不复制）</div>
+                          {excluded.map(({ player, rank }) => (
+                            <div key={player.playerId || rank}>
+                              #{rank} {player.name}
+                              {copyShowId && player.playerId && <span> ({player.playerId})</span>}
+                              {copyShowValues && <span> ({player.value})</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </>
                   )
                 })()}
@@ -723,11 +780,7 @@ export default function CopyRankModal({
           </button>
           <button
             onClick={handleCopyAsTable}
-            disabled={
-              (!currentData && !preloadedData[copyDataType]) ||
-              (copyMode === 'rank' && (!copyCount || parseInt(copyCount) <= 0)) ||
-              (copyMode === 'threshold' && thresholdValue === '')
-            }
+            disabled={copyDisabled}
             className="flex-1 px-3 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-500 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg shadow-md shadow-cyan-500/20 hover:shadow-cyan-500/40 transition-all flex items-center justify-center gap-1.5"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -737,11 +790,7 @@ export default function CopyRankModal({
           </button>
           <button
             onClick={handleCopyList}
-            disabled={
-              (!currentData && !preloadedData[copyDataType]) ||
-              (copyMode === 'rank' && (!copyCount || parseInt(copyCount) <= 0)) ||
-              (copyMode === 'threshold' && thresholdValue === '')
-            }
+            disabled={copyDisabled}
             className="flex-1 px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 disabled:from-gray-600 disabled:to-gray-500 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg shadow-md shadow-blue-500/20 hover:shadow-blue-500/40 transition-all flex items-center justify-center gap-1.5"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

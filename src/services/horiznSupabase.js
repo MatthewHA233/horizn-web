@@ -1053,6 +1053,23 @@ export async function getQQMembers() {
 }
 
 /**
+ * 获取内群（QQ 群）在群名单，供复制排名名单剔除内群成员
+ * 与 getQQMembers 不同：失败直接抛错，避免静默当成"无人可剔除"把内群成员复制出去
+ * @returns {Promise<{playerIds: Set<string>, unbound: Array<{qqId: number, name: string}>}>}
+ */
+export async function getInnerGroupRoster() {
+  const result = await adminApi('?resource=qq-members')
+  const inGroup = (result.data || []).filter(qq => !qq.left_at)
+  return {
+    playerIds: new Set(inGroup.filter(qq => qq.member?.player_id).map(qq => qq.member.player_id)),
+    // 已忽视的 QQ（非联队成员）不需要人工核对
+    unbound: inGroup
+      .filter(qq => !qq.member && !qq.is_ignored)
+      .map(qq => ({ qqId: qq.qq_id, name: qq.card || qq.nickname || String(qq.qq_id) })),
+  }
+}
+
+/**
  * 发送群消息（通过 Next.js API 代理）
  * @param {string} message - 消息内容（支持 CQ 码）
  * @returns {Promise<{success: boolean, message_id?: number, error?: string}>}
