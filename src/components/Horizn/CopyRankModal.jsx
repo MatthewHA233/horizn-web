@@ -21,12 +21,13 @@ export default function CopyRankModal({
   const [copyShowValues, setCopyShowValues] = useState(true)
   const [copyShowNewMark, setCopyShowNewMark] = useState(true)
   const [copyShowId, setCopyShowId] = useState(true)
+  const [copyShowIndex, setCopyShowIndex] = useState(true)
   const [copyCount, setCopyCount] = useState('20')
   const [copyMode, setCopyMode] = useState('rank')
   const [thresholdCompare, setThresholdCompare] = useState('gte')
   const [thresholdValue, setThresholdValue] = useState('')
-  // 剔除内群成员：roster = { playerIds, unbound }，每次打开弹窗重新拉取
-  const [excludeInner, setExcludeInner] = useState(false)
+  // 剔除非内群成员（只保留在 QQ 群里的）：roster = { playerIds, unbound }，每次打开弹窗重新拉取
+  const [excludeOuter, setExcludeOuter] = useState(false)
   const [innerRoster, setInnerRoster] = useState(null)
   const [innerError, setInnerError] = useState(null)
 
@@ -65,16 +66,16 @@ export default function CopyRankModal({
     }
   }, [show, activeTab])
 
-  // 开启剔除内群时拉取在群名单
+  // 开启剔除非内群时拉取在群名单
   useEffect(() => {
-    if (!show || !excludeInner || innerRoster) return
+    if (!show || !excludeOuter || innerRoster) return
     let cancelled = false
     setInnerError(null)
     getInnerGroupRoster()
       .then(roster => { if (!cancelled) setInnerRoster(roster) })
       .catch(err => { if (!cancelled) setInnerError(err.message || '内群名单加载失败') })
     return () => { cancelled = true }
-  }, [show, excludeInner, innerRoster])
+  }, [show, excludeOuter, innerRoster])
 
   // 清理定时器
   const handlePressEnd = useCallback(() => {
@@ -143,8 +144,8 @@ export default function CopyRankModal({
     return `${month}.${day}入`
   }
 
-  // 剔除内群已开启但名单未就绪（加载中/失败）：禁止复制，避免把内群成员带出去
-  const innerPending = excludeInner && !innerRoster
+  // 剔除非内群已开启但名单未就绪（加载中/失败）：禁止复制，避免把非内群成员带出去
+  const innerPending = excludeOuter && !innerRoster
 
   /**
    * 按当前筛选条件选出名单（复制文本 / 复制表格 / 预览共用）
@@ -157,19 +158,20 @@ export default function CopyRankModal({
     const allData = selectedData.allData
     const tabName = copyDataType === 'weekly' ? '周活跃度' : '赛季活跃度'
     const formattedTime = formatTimestamp(selectedData.timestamp)
-    const innerIds = excludeInner ? innerRoster?.playerIds : null
-    const isInner = (p) => Boolean(innerIds && p.playerId && innerIds.has(p.playerId))
+    const innerIds = excludeOuter ? innerRoster?.playerIds : null
+    // 未开启时全部保留；开启后只保留已绑定且在群的成员
+    const keep = (p) => !innerIds || Boolean(p.playerId && innerIds.has(p.playerId))
     const selected = []
     const excluded = []
 
     if (copyMode === 'rank') {
-      // 按名次依次挑非内群成员凑满人数，途中跳过的内群成员进剔除名单
+      // 按名次依次挑内群成员凑满人数，途中跳过的非内群成员进剔除名单
       const count = parseInt(copyCount) || 20
       for (let i = 0; i < allData.length && selected.length < count; i++) {
-        if (isInner(allData[i])) excluded.push({ player: allData[i], rank: i + 1 })
-        else selected.push(allData[i])
+        if (keep(allData[i])) selected.push(allData[i])
+        else excluded.push({ player: allData[i], rank: i + 1 })
       }
-      const title = `${formattedTime} HORIZN地平线${tabName}前${count}名${innerIds ? '（不含内群）' : ''}`
+      const title = `${formattedTime} HORIZN地平线${tabName}前${count}名${innerIds ? '（仅内群）' : ''}`
       return { selected, excluded, title }
     }
 
@@ -177,11 +179,11 @@ export default function CopyRankModal({
     allData.forEach((p, i) => {
       const matched = thresholdCompare === 'gte' ? p.value >= threshold : p.value <= threshold
       if (!matched) return
-      if (isInner(p)) excluded.push({ player: p, rank: i + 1 })
-      else selected.push(p)
+      if (keep(p)) selected.push(p)
+      else excluded.push({ player: p, rank: i + 1 })
     })
     const op = thresholdCompare === 'gte' ? '≥' : '≤'
-    const title = `${formattedTime} HORIZN地平线${tabName}${op}${threshold}（${innerIds ? '不含内群，' : ''}共${selected.length}人）`
+    const title = `${formattedTime} HORIZN地平线${tabName}${op}${threshold}（${innerIds ? '仅内群，' : ''}共${selected.length}人）`
     return { selected, excluded, title }
   }
 
@@ -193,7 +195,7 @@ export default function CopyRankModal({
 
     const newMemberMap = currentData?.newMemberMap || {}
     const lines = selectedPlayers.map((p, i) => {
-      let line = `${i + 1}. ${p.name}`
+      let line = copyShowIndex ? `${i + 1}. ${p.name}` : p.name
       if (copyShowId && p.playerId) {
         line += ` (${p.playerId})`
       }
@@ -248,7 +250,7 @@ export default function CopyRankModal({
     // 构建 TSV 格式（Tab分隔）
     const lines = []
     // 表头
-    const headers = ['排名', '成员名']
+    const headers = copyShowIndex ? ['排名', '成员名'] : ['成员名']
     if (copyShowId) headers.push('ID')
     if (copyShowNewMark) headers.push('入队日期')
     if (copyShowValues) headers.push(tabName)
@@ -257,7 +259,7 @@ export default function CopyRankModal({
     // 数据行
     const newMemberMap = currentData?.newMemberMap || {}
     selectedPlayers.forEach((p, i) => {
-      const row = [i + 1, p.name]
+      const row = copyShowIndex ? [i + 1, p.name] : [p.name]
       if (copyShowId) {
         row.push(p.playerId || '')
       }
@@ -369,17 +371,17 @@ export default function CopyRankModal({
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* 剔除内群成员开关 */}
+            {/* 剔除非内群成员开关 */}
             <button
-              onClick={() => setExcludeInner(v => !v)}
-              title="从名单中剔除已在内群（QQ群）的成员"
+              onClick={() => setExcludeOuter(v => !v)}
+              title="只保留内群（QQ群）成员，剔除不在内群的成员"
               className={`px-2 py-0.5 text-[10px] font-medium rounded-md border transition-all whitespace-nowrap ${
-                excludeInner
+                excludeOuter
                   ? 'bg-rose-600 border-rose-500 text-white'
                   : 'border-gray-600 text-gray-400 hover:text-white hover:border-gray-500'
               }`}
             >
-              剔除内群
+              剔除非内群
             </button>
             <button
               onClick={handleClose}
@@ -401,6 +403,15 @@ export default function CopyRankModal({
               </label>
               {/* 显示选项勾选框 */}
               <div className="flex items-center gap-3">
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={copyShowIndex}
+                    onChange={(e) => setCopyShowIndex(e.target.checked)}
+                    className="w-3 h-3 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500/30 focus:ring-offset-0"
+                  />
+                  <span className="text-[10px] text-gray-400">序号</span>
+                </label>
                 <label className="flex items-center gap-1 cursor-pointer">
                   <input
                     type="checkbox"
@@ -709,18 +720,18 @@ export default function CopyRankModal({
                   const selection = buildSelection()
                   if (!selection) return null
                   const { selected: selectedPlayers, excluded, title } = selection
-                  const unbound = excludeInner ? innerRoster?.unbound || [] : []
+                  const unbound = excludeOuter ? innerRoster?.unbound || [] : []
 
                   const newMemberMap = currentData?.newMemberMap || {}
 
                   // 红字提示（仅预览，不复制）：名单加载状态 / 内群未绑定 QQ 需人工核对
                   let innerNotice = null
-                  if (excludeInner && innerError) {
-                    innerNotice = `⚠ 内群名单加载失败：${innerError}。已暂停复制，可关闭「剔除内群」后复制完整名单`
+                  if (excludeOuter && innerError) {
+                    innerNotice = `⚠ 内群名单加载失败：${innerError}。已暂停复制，可关闭「剔除非内群」后复制完整名单`
                   } else if (innerPending) {
                     innerNotice = '内群名单加载中…'
                   } else if (unbound.length > 0) {
-                    innerNotice = `⚠ 内群有 ${unbound.length} 个QQ未绑定游戏成员，无法自动剔除，请人工核对以下QQ名片是否在清单中：${unbound.map(u => u.name).join('、')}`
+                    innerNotice = `⚠ 内群有 ${unbound.length} 个QQ未绑定游戏成员，可能被误剔除，请人工审核以下内群QQ名片是否在清单中：${unbound.map(u => u.name).join('、')}`
                   }
 
                   const titleElement = <div className="mb-2 text-gray-200">{title}</div>
@@ -731,7 +742,7 @@ export default function CopyRankModal({
 
                     return (
                       <div key={i}>
-                        {i + 1}. {p.name}
+                        {copyShowIndex && `${i + 1}. `}{p.name}
                         {copyShowId && p.playerId && (
                           <span className="text-gray-500"> ({p.playerId})</span>
                         )}
@@ -752,7 +763,7 @@ export default function CopyRankModal({
                       {listElements}
                       {excluded.length > 0 && (
                         <div className="mt-2 pt-2 border-t border-gray-700/50 text-gray-500">
-                          <div className="mb-1 font-sans">已剔除内群成员 {excluded.length} 人（不复制）</div>
+                          <div className="mb-1 font-sans">已剔除非内群成员 {excluded.length} 人（不复制）</div>
                           {excluded.map(({ player, rank }) => (
                             <div key={player.playerId || rank}>
                               #{rank} {player.name}

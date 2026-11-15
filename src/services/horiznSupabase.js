@@ -1053,8 +1053,8 @@ export async function getQQMembers() {
 }
 
 /**
- * 获取内群（QQ 群）在群名单，供复制排名名单剔除内群成员
- * 与 getQQMembers 不同：失败直接抛错，避免静默当成"无人可剔除"把内群成员复制出去
+ * 获取内群（QQ 群）在群名单，供复制排名名单剔除非内群成员
+ * 与 getQQMembers 不同：失败直接抛错，调用方据此暂停复制，避免拿空名单误判
  * @returns {Promise<{playerIds: Set<string>, unbound: Array<{qqId: number, name: string}>}>}
  */
 export async function getInnerGroupRoster() {
