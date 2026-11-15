@@ -1082,6 +1082,7 @@ export function removeCopyRankAdmin(playerId) {
  * @returns {Promise<{
  *   playerIds: Set<string>,
  *   unbound: Array<{qqId: number, name: string}>,
+ *   inGroupBindings: Array<{qqId: number, card: string, playerId: string, boundName: string}>,
  *   reviewUnregistered: Array<{qqId: number, name: string}>
  * }>}
  */
@@ -1108,6 +1109,15 @@ export async function getGroupRoster() {
     unbound: inGroup
       .filter(qq => !qq.member && !qq.is_ignored)
       .map(qq => ({ qqId: qq.qq_id, name: qqName(qq) })),
+    // 在群已绑定 QQ 的名片，用来核对「名片是别人的游戏名、却绑在另一个号上」
+    inGroupBindings: inGroup
+      .filter(qq => qq.member?.player_id && qq.card)
+      .map(qq => ({
+        qqId: qq.qq_id,
+        card: qq.card,
+        playerId: qq.member.player_id,
+        boundName: qq.member.primary_name || qq.member.player_id,
+      })),
     reviewUnregistered: reviewRows
       .filter(row => !row.player_id && !skipReviewQQ.has(String(row.qq_id)))
       .map(row => ({ qqId: row.qq_id, name: qqName(row) })),

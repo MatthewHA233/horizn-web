@@ -7,6 +7,25 @@ import CopyRankAdminSettings from './CopyRankAdminSettings'
 const EXCLUDED_ADMIN_LABEL = '已剔除管理'
 const EXCLUDED_OUTER_LABEL = '已剔除非内群非审核群成员'
 
+const normalizeName = (name) => String(name || '').trim().toLowerCase()
+
+/**
+ * 找出名片和绑定对不上的内群 QQ：名片正好是排名里另一个成员的当前游戏名，却绑在别的号上
+ * @param {Array<{qqId, card, playerId, boundName}>} bindings - 在群已绑定 QQ
+ * @param {Array<{name, playerId}>} players - 当前排名成员
+ */
+function findCardMismatches(bindings, players) {
+  const idByName = new Map(
+    (players || [])
+      .filter(p => p.playerId && p.name)
+      .map(p => [normalizeName(p.name), p.playerId.toUpperCase()]),
+  )
+  return (bindings || []).filter(binding => {
+    const matchedId = idByName.get(normalizeName(binding.card))
+    return Boolean(matchedId && matchedId !== binding.playerId.toUpperCase())
+  })
+}
+
 /**
  * 剔除开关；传 onSettings 时右侧内嵌一个齿轮设置按钮
  */
@@ -803,6 +822,10 @@ export default function CopyRankModal({
                   } else if (rosterPending) {
                     notices.push('内群/审核群名单加载中…')
                   } else if (excludeOuter && roster) {
+                    const mismatches = findCardMismatches(roster.inGroupBindings, getSelectedData()?.allData)
+                    if (mismatches.length > 0) {
+                      notices.push(`⚠ 内群有 ${mismatches.length} 个QQ名片和绑定对不上，名片对应的成员可能被误剔除，请人工核对：${mismatches.map(m => `${m.card}（QQ ${m.qqId}，绑定的是「${m.boundName}」）`).join('、')}`)
+                    }
                     if (roster.unbound.length > 0) {
                       notices.push(`⚠ 内群有 ${roster.unbound.length} 个QQ未绑定游戏成员，可能被误剔除，请人工审核以下内群QQ名片是否在清单中：${roster.unbound.map(u => u.name).join('、')}`)
                     }
