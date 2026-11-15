@@ -131,7 +131,7 @@ export default function CopyRankAdminSettings({ admins, error, candidates, onCha
               className="w-full h-7 px-2 bg-gray-700/50 text-white text-xs rounded-md border border-gray-600 focus:border-blue-500 focus:outline-none transition-all"
             />
             {suggestions.length > 0 && (
-              <div className="mt-1 max-h-32 overflow-y-auto custom-scrollbar rounded-md border border-gray-700 bg-gray-800">
+              <div className="mt-1 max-h-24 overflow-y-auto custom-scrollbar rounded-md border border-gray-700 bg-gray-800">
                 {suggestions.map(player => (
                   <button
                     key={player.playerId}

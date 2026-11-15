@@ -377,7 +377,7 @@ export default function CopyRankModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4">
-      <div className={`bg-gray-800/95 backdrop-blur-xl rounded-xl border border-gray-700/50 shadow-2xl w-full max-w-md max-h-full flex flex-col overflow-hidden ${isMobile ? 'select-none' : ''}`}>
+      <div className={`bg-gray-800/95 backdrop-blur-xl rounded-xl border border-gray-700/50 shadow-2xl w-full max-w-md overflow-hidden ${isMobile ? 'select-none' : ''}`}>
         {/* 顶部装饰条 */}
         <div className="h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500"></div>
 
@@ -388,7 +388,8 @@ export default function CopyRankModal({
               <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
-              <span>复制排名名单</span>
+              <span className="sm:hidden">复制名单</span>
+              <span className="hidden sm:inline">复制排名名单</span>
             </h3>
             {/* 数据类型切换 */}
             <div className="flex gap-0.5 bg-gray-900/50 rounded-md p-0.5">
@@ -422,8 +423,8 @@ export default function CopyRankModal({
               </button>
             </div>
           </div>
-          {/* 剔除开关：窄屏换到第二行靠右，宽屏与关闭按钮同一行 */}
-          <div className="order-last w-full flex justify-end gap-1.5 sm:order-none sm:w-auto sm:ml-auto">
+          {/* 剔除开关：与关闭按钮同一行靠右，极窄屏放不下时才换行 */}
+          <div className="ml-auto flex gap-1.5">
             <ExcludeToggle
               active={excludeAdmins}
               onClick={() => setExcludeAdmins(v => !v)}
@@ -443,7 +444,7 @@ export default function CopyRankModal({
           </div>
           <button
             onClick={handleClose}
-            className="ml-auto sm:ml-1.5 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg p-1 transition-all"
+            className="ml-1.5 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg p-1 transition-all"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -452,8 +453,9 @@ export default function CopyRankModal({
         </div>
 
         {/* 内容区 */}
-        <div className="px-4 sm:px-5 py-4 space-y-3 min-h-0 overflow-y-auto custom-scrollbar">
-          {showAdminSettings && (
+        <div className="px-4 sm:px-5 py-4 space-y-3">
+          {/* 设置面板展开时替换筛选和预览区，弹窗高度不变 */}
+          {showAdminSettings ? (
             <CopyRankAdminSettings
               admins={admins}
               error={adminsError}
@@ -465,7 +467,8 @@ export default function CopyRankModal({
               }}
               onClose={() => setShowAdminSettings(false)}
             />
-          )}
+          ) : (
+          <>
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
@@ -846,6 +849,8 @@ export default function CopyRankModal({
                 })()}
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
 
